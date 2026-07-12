@@ -3,7 +3,29 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **PATTERN-LABEL-ALIAS — pattern-constraint label aliases; struct bodies FIXED (LANDED
+HEAD: **SELF-SELECT-CYCLE-CROSSFRAME — cross-frame selector reference-cycle → top FIXED (LANDED
+2026-07-12).** `x:{a:1}; x:{a:x.a}` was kue `{x:{a:_|_}}`, now `{x:{a:1}}` (cue v0.16.1). The
+reference-cycle→top class is now CLOSED across same-frame + indirect (index-layout) + cross-frame
+(+ nested chains `x.a.b`). OBSERVED (instrument-first, trace-diff vs preamble): `x`'s
+two-declaration value is a `.conj`; `x.a` forces the WHOLE enclosing `x` and re-enters its
+in-progress body; `.conj` is not struct-like so `structStack` never guards it → fuel-deep bottom
+(single-`.struct` bodies bottom via `structStack` as a false structural cycle). FIX (frame-stable
+identity): resolve `x.label` to `label`'s slot in the LIVE enclosing frame — found by `pushFrame`'s
+deterministic `(parentIds, fields)` frame identity (`enclosingSelfSelectId?`, chains via
+`selectChainId?`; helpers in `EvalBase.lean`), inheriting the depth-0 `slotVisited ⇒ truncate .top`
+rule; a cross-struct select whose frame isn't live falls through to force-then-select. SOUND vs a
+label heuristic: frame keys include the field list, so `z:{a:x.a}` (label coincides with `x`'s)
+resolves `x.a=1`, not self-truncate. Both-direction guards green: real conflict still ⊥
+(`x:{a:x.a&2}`, deeper `x.a.b&2`); valid cross-frame select resolves (`y:{b:x.a}`). Seed
+`self-conj-cycle-fieldsel` GRADUATED; new fixtures `self-select-{cycle-deeper,crossframe-valid,
+cycle-deeper-conflict}`; 9 `self_select_*` pins in `EvalTests.lean`. **A two-phase AUDIT is now DUE**
+(3 slices since last audit: DEF-FLATTEN-CLOSEDNESS, PATTERN-LABEL-ALIAS, SELF-SELECT-CYCLE-CROSSFRAME).
+**NEXT (ranked):** run the AUDIT (phase A code-quality → phase B architecture) → **RESOLVE-DEDUP-MIRROR-GUARD**
+(MED drift, structural hoist into `Lattice`, stabilizes `buildFrame` — LAND BEFORE LET-CYCLE-ERROR)
+→ **LET-CYCLE-ERROR** (MED, `buildFrame`/`.letBinding`) → **BINARY-CMP-BYTES** (LOW) →
+**BOUND-ORDEREDPRIM** (LOW) → PB-EVALBASE-SPLIT. **Alpha release remains HELD for chakrit (attended).**
+
+Prior HEAD: **PATTERN-LABEL-ALIAS — pattern-constraint label aliases; struct bodies FIXED (LANDED
 2026-07-12).** `[Name=string]: {n: Name}` now binds `Name` to each matched field's label string.
 kue previously could not PARSE the `ident=` prefix. MECHANISM (reuses letBinding/lexical frames, no
 new binding path): parse (`patternAliasHead?`, skips `==`/`=~`) desugars the alias onto the struct
@@ -17,14 +39,8 @@ patterns/concrete-field/scope-non-leak; `[x=~…]` stays a regex pattern. Seed
 `testdata/wild/pattern-label-alias/` RED→GREEN; 10 theorems `Kue/Tests/PatternAliasTests.lean`.
 SPLIT: non-struct constraint body (`[Name=string]: Name`, valid in cue → value) bottoms in kue
 (nowhere to host the letBinding) — filed **PATTERN-LABEL-ALIAS-SCALAR** (LOW; `cue-divergences.md`;
-fix = synthetic resolve+eval frame). **A two-phase AUDIT is now DUE** — 3 slices since last:
-SELF-CONJ-CYCLE-INDIRECT, DEF-FLATTEN-CLOSEDNESS, PATTERN-LABEL-ALIAS. **NEXT (ranked):** run the
-AUDIT (phase A code-quality, then phase B architecture) → then remaining scoping bugs
-**LET-CYCLE-ERROR** (MED — root is `buildFrame`/`.letBinding`, recently touched by
-SELF-CONJ-CYCLE-INDIRECT's `canonicalFieldLayout` change; coordinate) → **PATTERN-LABEL-ALIAS-SCALAR**
-/ **UNREFERENCED-ALIAS** (LOW) → **SELF-SELECT-CYCLE-CROSSFRAME** (MED,
-`testdata/wild/self-conj-cycle-fieldsel/` `.known-red`) → **BOUND-ORDEREDPRIM** / **BINARY-CMP-BYTES**
-(LOW) → F1/F3/F5. **Alpha release remains HELD for chakrit (attended).**
+fix = synthetic resolve+eval frame). (NEXT ranking superseded by the current HEAD block above;
+SELF-SELECT-CYCLE-CROSSFRAME has since LANDED and its seed graduated.)
 
 Prior HEAD: **DEF-FLATTEN-CLOSEDNESS — multi-conjunct def flattened OPEN, dropping closedness; FIXED
 (LANDED 2026-07-12). Flatten/closedness cluster soundness CLOSED.** A CLOSED def unioning its OWN struct

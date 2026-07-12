@@ -515,6 +515,53 @@ theorem indirect_field_selection_still_resolves :
   native_decide
 -- └────────────────────────────────────────────────────────────────────────────────────────────┘
 
+-- ┌─ SELF-SELECT-CYCLE-CROSSFRAME (cross-frame selector reference-cycle → top) ─┐
+-- `x.a` inside `x`'s own body selects a field of the struct being evaluated. Forcing the whole
+-- `x` re-enters its in-progress body (a `.conj` body escapes `structStack` and bottoms via fuel;
+-- a `.struct` body bottoms structurally) — both fabricate `_|_`. Resolving `x.label` to `label`'s
+-- slot in the LIVE enclosing frame (found by `pushFrame` frame identity, `enclosingSelfSelectId?`)
+-- routes the self-selection through the depth-0 `slotVisited ⇒ truncate .top` reference-cycle rule.
+theorem self_select_cycle_truncates_to_top :
+    evalSourceMatches "x: {a: 1}\nx: {a: x.a}\n" "x: {a: 1}" = true := by
+  native_decide
+
+-- A NON-cyclic self-select (`b` reads sibling `a`) resolves its target, not truncated.
+theorem self_select_sibling_noncycle_resolves :
+    evalSourceMatches "x: {a: 1, b: x.a}\n" "x: {a: 1, b: 1}" = true := by
+  native_decide
+
+-- GUARD (over-suppression, the dangerous direction): a VALID cross-struct select whose target
+-- frame is NOT the live enclosing one must STILL resolve — not be mistaken for a self-cycle.
+theorem self_select_valid_crossframe_resolves :
+    evalSourceMatches "x: {a: 1}\ny: {b: x.a}\n" "x: {a: 1}\ny: {b: 1}" = true := by
+  native_decide
+
+-- GUARD (frame identity, not label heuristic): a DIFFERENT struct `z` whose sole field `a`
+-- coincides in label with `x`'s must resolve `z.a = x.a`, never self-truncate on label match.
+theorem self_select_label_coincidence_resolves :
+    evalSourceMatches "x: {a: 1}\nz: {a: x.a}\n" "x: {a: 1}\nz: {a: 1}" = true := by
+  native_decide
+
+-- GUARD (over-truncation): a real conflict through the cycle must STILL bottom
+-- (`x.a → top`, so `a = 1 & (top & 2) = 1 & 2 = ⊥`).
+theorem self_select_cycle_conflict_still_bottoms :
+    exportJsonBottoms "x: {a: 1}\nx: {a: x.a & 2}\n" = true := by
+  native_decide
+
+-- NESTED (two-selector chain `x.a.b`): the same class, resolved through `selectChainId?`.
+theorem self_select_deeper_cycle_truncates_to_top :
+    evalSourceMatches "x: {a: {b: 1}}\nx: {a: {b: x.a.b}}\n" "x: {a: {b: 1}}" = true := by
+  native_decide
+
+theorem self_select_deeper_valid_crossframe_resolves :
+    evalSourceMatches "x: {a: {b: 1}}\ny: {c: x.a.b}\n" "x: {a: {b: 1}}\ny: {c: 1}" = true := by
+  native_decide
+
+theorem self_select_deeper_conflict_still_bottoms :
+    exportJsonBottoms "x: {a: {b: 1}}\nx: {a: {b: x.a.b & 2}}\n" = true := by
+  native_decide
+-- └────────────────────────────────────────────────────────────────────────────────────────────┘
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_static_string_field_index                       -- static selectors / indices
@@ -525,5 +572,6 @@ theorem indirect_field_selection_still_resolves :
 #check @field_struct_then_scalar_conflicts                   -- empty struct meet scalar
 #check @meet_declsonly_struct_with_list_carrier_bottoms      -- scalar/list decl carriers
 #check @indirect_field_selection_still_resolves              -- dedup slot layout + cycle guards
+#check @self_select_deeper_conflict_still_bottoms            -- cross-frame selector cycle → top
 
 end Kue

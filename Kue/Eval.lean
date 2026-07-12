@@ -393,7 +393,20 @@ mutual
     | fuel + 1, .selector (.refId id) label =>
         match thisStructFieldIndex? env id label with
         | some labelId => evalValueWithFuel fuel env visited (.refId labelId)
-        | none =>
+        | none => do
+          -- Cross-frame self-selection (SELF-SELECT-CYCLE-CROSSFRAME). When `x.label` selects a
+          -- field of the struct we are CURRENTLY evaluating INSIDE (`x` resolves to the enclosing
+          -- struct's binding), forcing the whole `x` would re-enter its in-progress body — a conj
+          -- body escapes the `structStack` guard (fuel-deep bottoming) and a struct body bottoms
+          -- structurally. Instead, resolve `x.label` DIRECTLY to `label`'s slot in that active
+          -- frame (found by frame IDENTITY, not label heuristic — `pushFrame`'s deterministic
+          -- `(parentIds, fields)` key), so a self-selection cycle (`x:{a:1}; x:{a:x.a}`) inherits
+          -- the depth-0 `slotVisited ⇒ truncate .top` reference-cycle rule and a valid non-cyclic
+          -- self-select (`x:{a:1,b:x.a}`) resolves its sibling. A sibling/cross-struct select
+          -- (`y:{b:x.a}`) whose target frame is NOT on the stack falls through to the force path.
+          match enclosingSelfSelectId? (<- get).frames env id label with
+          | some selfId => evalValueWithFuel fuel env visited (.refId selfId)
+          | none =>
             -- Producer (slice 3): selecting an imported definition whose body has a sibling
             -- self-reference defers to a `.closure` instead of eagerly evaluating the base —
             -- which would collapse the self-ref against the def's own frame before a use-site
@@ -413,8 +426,16 @@ mutual
                 let base <- evalValueWithFuel fuel env visited (.refId id)
                 pure (selectEvaluatedField base label)
     | fuel + 1, .selector base label => do
-        let baseEvaluated <- evalValueWithFuel fuel env visited base
-        pure (selectEvaluatedField baseEvaluated label)
+        -- A selector CHAIN `x.f.g…` whose every step lands in a live enclosing frame
+        -- (SELF-SELECT-CYCLE-CROSSFRAME, nested case `x:{a:{b:1}}; x:{a:{b:x.a.b}}`): resolve
+        -- it to the deepest field's binding directly, inheriting the `slotVisited` cycle rule,
+        -- rather than forcing each intermediate struct (which re-enters the in-progress body and
+        -- bottoms structurally). `none` when any step's frame is not live — force-then-select.
+        match selectChainId? (<- get).frames env (.selector base label) with
+        | some selfId => evalValueWithFuel fuel env visited (.refId selfId)
+        | none => do
+            let baseEvaluated <- evalValueWithFuel fuel env visited base
+            pure (selectEvaluatedField baseEvaluated label)
     | fuel + 1, .index base key => do
         let baseEvaluated <- evalValueWithFuel fuel env visited base
         let keyEvaluated <- evalValueWithFuel fuel env visited key

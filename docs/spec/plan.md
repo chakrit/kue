@@ -1236,17 +1236,27 @@ so the `| _ =>` ban does not apply.
   (`dupfield_forward_ref_resolves`, `sibling_cycle_truncates_to_top`,
   `plain_ref_across_collapsed_dup_resolves`, `direct_self_conflict_still_bottoms`,
   `cyclic_conflict_still_bottoms`, `indirect_field_selection_still_resolves`).
-- **SELF-SELECT-CYCLE-CROSSFRAME (MED correctness — wrong value; kue BUG). OPEN — root OBSERVED
-  2026-07-12 (split out of SELF-CONJ-CYCLE-INDIRECT).** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue `{x:{a:_|_}}`;
-  cue v0.16.1 `{x:{a:1}}` (`a: x.a` = `a` referencing itself → reference cycle → top → `a = 1 & _ = 1`).
-  **Observed mechanism:** `x.a` (a depth-1 self-selection) forces the whole enclosing struct `x`,
-  re-entering the in-progress `a` field; the depth-0-relative `visited` cycle guard cannot cross the
-  frame boundary (it carries frame-local slot indices), so the re-entry hits structural-cycle bottoming
-  instead of reference-cycle truncation-to-top. **Fix direction (NOT designed):** a cross-frame
-  reference-cycle needs cycle identity the frame-relative `visited` set structurally cannot provide —
-  either resolve a struct-ref field-selection to a direct field target evaluated with cycle tracking
-  (the `.thisStruct` path generalized), or distinguish a reference cycle (top) from a structural cycle
-  (bottom) at the selection re-entry. Seed: `testdata/wild/self-conj-cycle-fieldsel/` (`.known-red`).
+- **SELF-SELECT-CYCLE-CROSSFRAME (MED correctness — wrong value; kue BUG). ✅ LANDED 2026-07-12.**
+  `x: {a: 1}` + `x: {a: x.a}` ⇒ kue was `{x:{a:_|_}}`, now `{x:{a:1}}` (cue v0.16.1); the
+  reference-cycle→top class is now CLOSED across same-frame + indirect (index-layout) + cross-frame.
+  **Observed mechanism (instrumented, re-confirmed this slice):** `x`'s two-declaration value is a
+  `.conj`; `x.a` eagerly forces the WHOLE enclosing `x` (`.selector (.refId x) a` → force base) and
+  re-enters its in-progress body. A `.conj` body is NOT struct-like, so `structStack` never guards it —
+  the re-entry recurses fuel-deep and bottoms (`isConj=true`, 25 unguarded `recurseBody` re-entries
+  observed via trace-diff against a preamble baseline). A single `.struct` body instead bottoms via
+  `structStack` as a FALSE structural cycle. The frame-relative `visited` set cannot carry slot identity
+  across the frame crossing. **Fix (frame-stable identity, reused):** resolve `x.label` to `label`'s slot
+  in the LIVE enclosing frame — found by `pushFrame`'s deterministic `(parentIds, fields)` frame identity
+  (`enclosingSelfSelectId?`), NOT a label heuristic — so the self-selection inherits the depth-0
+  `slotVisited ⇒ truncate .top` reference-cycle rule. Multi-selector chains (`x.a.b`) resolve through
+  `selectChainId?` (recursive over `enclosingSelfSelectId?`). A cross-struct select whose target frame is
+  not live (`y:{b:x.a}`) falls through to the ordinary force-then-select path. **Both-direction guards
+  (green):** real conflict still ⊥ (`x:{a:x.a&2}`, deeper `x.a.b&2`); valid cross-frame select still
+  resolves (`y:{b:x.a}`); label-coincidence (`z:{a:x.a}` — frame identity distinguishes it from a
+  self-cycle). Seed `self-conj-cycle-fieldsel` GRADUATED (`.known-red` removed); new fixtures
+  `self-select-{cycle-deeper,crossframe-valid,cycle-deeper-conflict}`. 9 Lean pins in `EvalTests.lean`
+  (`self_select_*`). Helpers `structFrameLayout?`/`frameDepthOfId`/`enclosingSelfSelectId?`/
+  `selectChainId?` in `EvalBase.lean`; selector arms in `Eval.lean`.
 - **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; PRE-EXISTING). ✅ LANDED
   2026-07-12.** Fixed by widening `flattenConjDefRef`'s close gate with an `ownLiteralUnion`
   disjunct (`EvalBase.lean` ~1960): fires when every non-`.refId` conjunct is `isUnionableDefValue`
@@ -1381,9 +1391,10 @@ holds; `Resolve` stays `Value`+`Lattice`-only (the very reason the mirror exists
 
 **Reconciled ranked HEAD (philosophy: active wrong-value correctness → construction-drift guards →
 clean small bugs → tightening/refactor):**
-1. **SELF-SELECT-CYCLE-CROSSFRAME** (MED correctness, wrong value, kue BUG, root observed) — active.
+1. ~~**SELF-SELECT-CYCLE-CROSSFRAME**~~ ✅ LANDED 2026-07-12 — reference-cycle→top class CLOSED across
+   same-frame + indirect + cross-frame (+ nested chains).
 2. **RESOLVE-DEDUP-MIRROR-GUARD** (MED drift, structural hoist) — cheap construction fix; kills a whole
-   dangling-ref class; STABILIZES `buildFrame`'s collapse layout for #3.
+   dangling-ref class; STABILIZES `buildFrame`'s collapse layout for #3. LAND BEFORE LET-CYCLE-ERROR.
 3. **LET-CYCLE-ERROR** (MED, missing load error) — builds let-vs-field on the single-sourced layout;
    coordinate with #2 (both edit `Resolve.buildFrame`).
 4. **BINARY-CMP-BYTES** (LOW correctness, kue BUG) — small clean `bytesOp`-threading win.

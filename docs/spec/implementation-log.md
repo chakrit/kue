@@ -21273,3 +21273,61 @@ consistently with the `thisStruct` non-output marker family; no cycle; `Builtin 
 `Value`-producing `| _ =>` on the new pattern surface. Reconciled the whole backlog into a ranked head
 (SELF-SELECT-CYCLE-CROSSFRAME → RESOLVE-DEDUP-MIRROR-GUARD → LET-CYCLE-ERROR → BINARY-CMP-BYTES →
 BOUND-ORDEREDPRIM). No inline code change this cycle.
+
+---
+
+## Completed Slice: SELF-SELECT-CYCLE-CROSSFRAME — cross-frame selector reference-cycle → top
+
+Goal: `x: {a: 1}` + `x: {a: x.a}` must yield `{x:{a:1}}` (cue v0.16.1), not `{x:{a:_|_}}`.
+The inner `a: x.a` is `a` referencing itself → reference cycle → top → `a = 1 & _ = 1`. Split
+out of SELF-CONJ-CYCLE-INDIRECT (`5011cae`) as a DISTINCT root; closes the reference-cycle→top
+class across same-frame + indirect (index-layout) + cross-frame (+ nested chains).
+
+### Observed mechanism (instrument-first, re-confirmed)
+
+Instrumented the `.selector (.refId id) label` NOT-thisStruct path and the `.refId` `recurseBody`
+arm; isolated input-specific trace lines by diffing against an input-independent preamble
+baseline. OBSERVED: `x`'s two-declaration value is a `.conj`; `x.a` forces the WHOLE enclosing `x`
+(`.selector (.refId x) a` → evaluate base) and re-enters its in-progress body. `isStructLikeBody
+(.conj …) = false`, so the `structStack` structural-cycle guard NEVER fires — the re-entry took
+the unguarded `recurseBody` else-branch and recursed fuel-deep (25 `isConj=true` re-entries
+observed) → bottom. A single `.struct` body instead bottoms via `structStack` as a FALSE
+structural cycle (the sibling case `x:{a:1,b:x.a}` only works because it selects a DIFFERENT,
+non-cyclic field off the bottomed copy). The frame-relative `visited` set (frame-local slot
+indices) cannot carry slot identity across the frame crossing.
+
+### Fix — frame-stable identity, reused
+
+`x.label` resolves DIRECTLY to `label`'s slot in the LIVE enclosing frame when `x`'s own struct
+body is on the stack — found by `pushFrame`'s DETERMINISTIC `(parentIds, fields)` frame identity
+(`state.frames` lookup), not a label heuristic. New helpers in `EvalBase.lean`:
+`structFrameLayout?` (the canonical field layout evaluating a struct/conj body pushes — mirrors
+`evalConjStandard`/the struct arm), `frameDepthOfId`, `enclosingSelfSelectId?` (single-level), and
+`selectChainId?` (recursive, for multi-selector chains `x.a.b`). `Eval.lean`: the
+`.selector (.refId id) label` arm tries `enclosingSelfSelectId?` (after `thisStructFieldIndex?`,
+before the import/force path); the generic `.selector base label` arm tries `selectChainId?` for
+chains. A resolved self-select becomes `.refId selfId`, inheriting the depth-0 `slotVisited ⇒
+truncate .top` reference-cycle rule. A cross-struct select whose target frame is NOT live falls
+through to the ordinary force-then-select path.
+
+Why frame identity is the SOUND discriminator (not a label heuristic): the frame key includes the
+full field list, so `x:{a:1}` and `z:{a:x.a}` (same label `a`, different bodies) get DISTINCT
+frame ids — `z.a` correctly resolves `x.a = 1` instead of self-truncating. A pure content/label
+match would break that case.
+
+### Both-direction guards (all green)
+
+Over-truncation: real conflict still ⊥ — `x:{a:x.a&2}` (x.a→top, 1&2=⊥) and deeper `x.a.b&2`.
+Over-suppression (the dangerous direction): valid cross-frame select still resolves —
+`y:{b:x.a}`→`{b:1}`; label-coincidence `z:{a:x.a}`→`{a:1}` (frame identity distinguishes it);
+nested-sibling `x:{a:x.n.m,n:{m:5}}`→`{a:5,n:{m:5}}`. Manual kue-vs-cue sweep on 3-deep chains and
+nested self-selects all SAME.
+
+### Tests
+
+Seed `testdata/wild/self-conj-cycle-fieldsel/` GRADUATED (`.known-red` removed). New wild fixtures
+`self-select-cycle-deeper` (nested cycle→top), `self-select-crossframe-valid` (over-suppression
+guard), `self-select-cycle-deeper-conflict` (over-truncation guard, `.expected.err`). 9
+`native_decide` pins in `EvalTests.lean` (`self_select_*`: cycle→top, sibling-noncycle,
+valid-crossframe, label-coincidence, conflict-bottoms, deeper cycle/valid/conflict). `./scripts/check.sh`
+fully green; SELF-CONJ-CYCLE + SELF-CONJ-CYCLE-INDIRECT + Bug2x/Resolve/cycle suites unchanged.

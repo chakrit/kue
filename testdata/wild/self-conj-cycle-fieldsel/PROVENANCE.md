@@ -6,14 +6,15 @@
   `{x: {a: 1}}` (inner `a: x.a` = `a` referencing itself → reference cycle → top → a stays
   1).
 - **Observed root (instrumented):** NOT the resolve/eval index mismatch (there is no
-  forward-ref shift here). `x.a` is evaluated by eagerly forcing the WHOLE enclosing struct
-  `x` via a depth-1 self-reference, re-entering the in-progress `a` field. The frame-relative
-  `visited` cycle guard resets on the depth-1 frame crossing (child-frame slot indices are
-  meaningless in the parent), so the self-selection cycle is not detected and bottoms
-  structurally instead of truncating to top.
-- **Why quarantined:** a cross-frame selector reference-cycle needs a mechanism the
-  frame-relative `visited` set structurally cannot provide (it cannot carry slot identity
-  across frames) — a separate fix-slice, not the index-layout fix that closed shapes 1 and
-  the dupfield probe. Phase B's "one class, one root" framing was incorrect: two roots.
+  forward-ref shift here). `x`'s two-declaration value is a `.conj`; `x.a` eagerly forces the
+  WHOLE enclosing `x` and re-enters its in-progress body. A `.conj` body is not struct-like, so
+  the `structStack` guard never fires — the re-entry recurses fuel-deep and bottoms. (A single
+  `.struct` body instead bottoms via `structStack` as a false structural cycle.) The
+  frame-relative `visited` cycle guard cannot carry slot identity across the frame crossing.
+- **Fix (SELF-SELECT-CYCLE-CROSSFRAME):** resolve `x.label` to `label`'s slot in the LIVE
+  enclosing frame — found by `pushFrame`'s deterministic `(parentIds, fields)` frame identity
+  (`enclosingSelfSelectId?` / `selectChainId?`), not a label heuristic — so the self-selection
+  inherits the depth-0 `slotVisited ⇒ truncate .top` reference-cycle rule. A cross-struct select
+  whose frame is not live falls through to the ordinary force-then-select path.
 - **Spec basis:** CUE reference cycles resolve to top; `a: a` → top, `1 & top = 1`.
-- **cue:** v0.16.1 ⇒ `{"x": {"a": 1}}`. Status: QUARANTINED (`.known-red`).
+- **cue:** v0.16.1 ⇒ `{"x": {"a": 1}}`. Status: FIXED (enforced, graduated 2026-07-12).

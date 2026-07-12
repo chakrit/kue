@@ -2057,6 +2057,72 @@ def lazyConjMergedFields (env : Env) (constraints : List Value) :
   -- through the use-site `meet` that concatenates `closedClauses`).
   pure (mergeConjOperands (operands.map ConjOperand.ofPair))
 
+/-- The canonical field layout that evaluating `v` as a struct body pushes as a frame, or
+    `none` when `v` is not a plain struct / same-scope conj (a deferral, disjunction, or
+    tail/pattern-bearing form). Mirrors the `canonicalizeFields` layout the struct arm and
+    `evalConjStandard` push, so looking the layout up in `pushFrame`'s deterministic frame
+    table finds the SAME frame id. A probe (returns `Option`, not a `Value`), so the `| _ =>`
+    catch-all is admissible. -/
+def structFrameLayout? (env : Env) : Value -> Option (List Field)
+  | .struct fields _ none [] _ => some (canonicalizeFields fields)
+  | .conj cs =>
+      match lazyConjMergedFields env cs with
+      | some (mergedFields, _) => some (canonicalizeFields mergedFields)
+      | none => none
+  | _ => none
+
+/-- Frame offset (depth) in `env` of the frame whose process-unique id is `fid`, or `none`. -/
+def frameDepthOfId (env : Env) (fid : Nat) : Option Nat :=
+  let rec go (d : Nat) : Env -> Option Nat
+    | [] => none
+    | frame :: rest => if Frame.id frame == fid then some d else go (d + 1) rest
+  go 0 env
+
+/-- Resolve `x.label` to a direct sibling `BindingId` when `x` (`id`) points to the struct we
+    are CURRENTLY evaluating inside — i.e. `x`'s own struct-body frame is live on `env`. The
+    frame is found by IDENTITY: `x`'s body layout (`structFrameLayout?`) keyed against `x`'s
+    declaring scope (`env.drop id.depth`) is looked up in the `pushFrame` frame table; if that
+    frame is on the stack and declares `label`, `x.label` is a same-frame sibling reference, so
+    it inherits the ordinary `slotVisited` reference-cycle rule instead of force-collapsing the
+    whole `x`. `none` when `x`'s frame is not live (a genuine cross-struct select) or `label` is
+    absent — both leave the generic force-then-select path in charge. -/
+def enclosingSelfSelectId? (frames : Std.HashMap FrameKey Nat) (env : Env)
+    (id : BindingId) (label : String) : Option BindingId :=
+  let outer := env.drop id.depth.val
+  match outer with
+  | [] => none
+  | frame :: _ =>
+      match nthField id.index.val frame.snd with
+      | some field =>
+          match structFrameLayout? outer (Field.value field) with
+          | some layout =>
+              match frames.get? ⟨Env.ids outer, layout⟩ with
+              | some fid =>
+                  match frameDepthOfId env fid with
+                  | some d =>
+                      match env.drop d with
+                      | targetFrame :: _ =>
+                          (fieldLabelIndexFrom label 0 targetFrame.snd).map
+                            (fun labelIndex => ⟨⟨d⟩, ⟨labelIndex⟩⟩)
+                      | [] => none
+                  | none => none
+              | none => none
+          | none => none
+      | none => none
+
+/-- Resolve a selector CHAIN `x.f.g…` to a direct `BindingId` when every step lands in a struct
+    frame currently live on `env` — the multi-level generalization of `enclosingSelfSelectId?`.
+    The bare-`refId` base yields the reference's own binding; each `.selector inner label` step
+    resolves `label` against the live frame of `inner`'s resolved binding. `none` at the first
+    step whose frame is not live (a genuine cross-struct select) — leaving the generic
+    force-then-select path to handle it. A probe (`Option`), so `| _ =>` is admissible. -/
+def selectChainId? (frames : Std.HashMap FrameKey Nat) (env : Env) : Value -> Option BindingId
+  | .refId id => some id
+  | .selector inner label =>
+      (selectChainId? frames env inner).bind (fun innerId =>
+        enclosingSelfSelectId? frames env innerId label)
+  | _ => none
+
 /-- Reopen an evaluated struct value (`open_ := true`) so it contributes its fields by `meet`
     WITHOUT imposing its own closedness on the host — an embedding UNIONS labels into the
     enclosing def's closed set rather than restricting it. Non-struct values pass through. -/
