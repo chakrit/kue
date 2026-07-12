@@ -325,6 +325,57 @@ optional / hidden / pattern-constraint corners; disj default+closedness, 3-deep;
 struct-comp, scalar-embed, bounds chains, interpolation, bytes, big-int, div-by-zero, mod — all
 match cue v0.16.1), so these two shapes are the SOLE remaining Phase-A residual.
 
+**DEF-CLOSEDNESS-REREF-DROP (HIGH soundness — SILENT closedness leak / over-acceptance; 2026-07-13
+Phase A MILESTONE-CONFIRMATION audit, 3rd attempt). OPEN — MILESTONE NOT substantiated.** The THIRD
+def-body entry-path residual, same class the batch was closing. When a definition's closedness is
+FLATTEN-DERIVED by `flattenConjDefRef` (nested-conj close, split-literal union close) rather than
+intrinsic to a single struct literal, RE-REFERENCING that def through another def body that is a
+bare `.refId` drops the derived closedness:
+- `#Y: ({b:2} & {d:4})` · `#X: #Y` · `#X & {z:9}` ⇒ kue emits `{y:{b:2,d:4,z:9}}` (exit 0); cue ⊥
+  (`y.z: field not allowed`). Also leaks the split-literal form `#Y: {b:2} & {d:4}`.
+- Controls that already close (must STAY green): the DIRECT forms `#Y & {z:9}` (both nested-conj and
+  split-literal reject); and the re-ref of a SINGLE-struct-literal def `#Y: {b:2,d:4}` · `#X: #Y`
+  (closedness intrinsic to the struct, correctly rejects). So the leak is SPECIFIC to re-referencing
+  a flatten-DERIVED-closed def.
+**Root:** `#X`'s body is a bare `.refId #Y`, matched by `defBodyConjuncts`'s `| _ => none` →
+`[constraint]` unexpanded; `#X` then resolves via plain ref-eval to `#Y`'s materialized VALUE, which
+carries no flatten-derived closedness (the close ran only at `#Y`'s own flatten, not on the
+re-referenced form). This is the recurring lesson made structural: `normalizeDefBodyConjunct` /
+`closeDefLiteralUnion` are reached only for `.conj`/`.disj` def-body top constructors; a `.refId`
+body is a THIRD entry that bypasses them. **`defBodyConjuncts` is per-arm, NOT a single complete
+point** — a def-body `.refId` (and the pure-comprehension body below) enters closedness by a path the
+normalization never sees. **Fix direction:** when a def body is a bare `.refId` to another
+DEFINITION slot, propagate the referent's DERIVED closedness (flatten the referent through
+`flattenConjDefRef` and carry its close), rather than emitting the unexpanded ref that materializes
+open. Prefer designing-out the class: route ALL def-body closedness through one point that every
+top constructor flows through, so a new body shape cannot bypass it. Red seed:
+`testdata/wild/def-closedness-reref-drop/` (nested-conj + split-literal faces). Add `ClosednessTests`
+reject guards for both faces + the single-struct-literal-reref and direct-form controls; graduate the
+seed in the fixing slice.
+
+**DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM (HIGH — spurious over-rejection; 2026-07-13 Phase A
+audit). OPEN — LIKELY PRE-EXISTING (orthogonal to the closedness-leak class).** A DEFINITION whose
+body CONJOINS a comprehension embedding with a struct literal bottoms on ANY use-site unification —
+even with an EMPTY struct, so it is NOT a closedness/field-allowed effect:
+- `#X: {for k, v in {p:1} {"\(k)": v}} & {b:2}` · `#X & {}` ⇒ kue ⊥; cue admits `{b:2,p:1}`. Same for
+  `#X & {b:2}` (own field), `#X & {p:1}` (comprehension output), `#X & {c:3}`. Order-independent
+  (`{b:2} & {for…}` too).
+- Controls that WORK (must stay green): comprehension-ALONE def `#X: {for…}` · `#X & {}` ⇒ `{p:1}`
+  (matches cue); the NON-def form `X: {for…} & {b:2}` · `X & {b:2}` ⇒ `{p:1,b:2}` (matches cue). So
+  the failure is SPECIFIC to a DEFINITION mixing a comprehension embedding with a struct conjunct,
+  re-resolved at a use-site.
+**Root (to pin in the fixing slice):** the def-flatten / use-site closedness re-derivation chokes
+when a `.structComp` conjunct sits alongside a struct literal in a definition body — `& {}` bottoming
+rules out a field-allowed cause, pointing at the def re-resolution (double comprehension eval, or a
+closedness clause that rejects the comprehension-produced field on the second unification pass). NOT
+a nested-conj-leak; the comprehension body takes `defBodyConjuncts`'s `| _ => none` path. **Spec
+basis:** unifying a resolved struct value with `{}` is the identity; a comprehension-produced field
+composes like any static field (cue admits). Red seed:
+`testdata/wild/def-comprehension-conjunct-usesite-bottom/` (`.expected` JSON — spec-correct ADMIT);
+add the comp-alone-def and non-def controls. NOTE: the earlier pure-comprehension case
+(`#X: {for…}` · `#X & {b:2}`) MATCHES cue (both ⊥) — the 2026-07-13 RESIDUAL-audit "comprehension …
+corners … CLEAN" sweep holds for that shape; only the comprehension-PLUS-conjunct def diverges.
+
 **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; 2026-07-13 Phase A
 audit `f0ddb19`). ✅ LANDED (2026-07-13).** `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing
 per disjunction: one non-whitelisted arm — a `.bound` (`>5`) or a list carrier (`[1,2]`) — made the WHOLE

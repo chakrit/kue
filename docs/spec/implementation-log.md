@@ -22686,3 +22686,59 @@ in a closed definition leaking a use-site extra through two def-body entry paths
   Cycle-value orthogonality verified: self-conj-cycle field, direct/buried/mutual self-ref VALUES
   unchanged (mutual-cycle stays the documented Bug2-12 kue-admits divergence; not a regression).
 - No new cue divergence (cue agrees ⊥ on both faces); no new spec gap.
+
+---
+
+## Audit Slice: Phase A MILESTONE-CONFIRMATION (3rd attempt) `3e8c7c8` — MILESTONE NOT REACHED (2026-07-13)
+
+Goal: confirm the nested-conj-closedness milestone — is `normalizeDefBodyConjunct`/`closeDefLiteralUnion`
+now reached at a TRULY complete point, or can a def body STILL enter closedness via a path that bypasses
+it? Batch `a4fd0e7..3e8c7c8` (1 code slice: DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL).
+
+### Last-audit reconciliation
+
+`a4fd0e7` Phase A filed DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL → landed `3e8c7c8`. Both seeds GRADUATED
+(wild dirs present, no `.known-red`): `def-closedness-bare-disj-conj-arm`, `def-closedness-buried-selfref-conj`.
+`ClosednessTests` = 88 theorems. OPEN backlog intact (PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS,
+LIST-ISSORTED, DISJ-NESTED-ERROR-ARM-AMBIGUOUS LOW, PB-VERSION-CONST LOW, PB-EVALBASE-SPLIT MED, deferred float).
+
+### Def-body entry-path completeness — the crux
+
+Enumerated EVERY way a def body reaches the closedness gate and probed each with a parenthesized nested
+`.conj`-of-structs + `& {z:9}`. **`defBodyConjuncts` is PER-ARM, NOT a single complete point** — it dispatches
+on the def-body top constructor (`.conj` → rawCs; `.disj` def → `[body]`; everything else → `none` → unexpanded).
+
+VERIFIED CLOSED (z correctly rejected, own fields admitted): `.conj` body; bare-`.disj` body; buried-self-ref;
+`.struct`-literal body with an embedded nested-`.conj` (`{a:1, ({b:2}&{d:4})}` — closes via struct
+normalization); comprehension-body `& (nested conj)`; builtinCall-body `& (nested conj)`; def-unify-two-nested-conj
+(`#A: ({a}&{b})`, `#B: ({c}&{d})`, `#X: #A & #B` — cue also ⊥s this, disjoint closed); deep-nested disj arm.
+
+**RESIDUAL FOUND (3rd entry-path leak) — DEF-CLOSEDNESS-REREF-DROP.** A def body that is a bare `.refId`
+to another def (`#Y: ({b:2}&{d:4})` · `#X: #Y` · `#X & {z:9}`) takes `defBodyConjuncts`'s `| _ => none`
+unexpanded path and resolves to `#Y`'s materialized value WITHOUT its FLATTEN-DERIVED closedness → leaks z
+(kue `{y:{b:2,d:4,z:9}}`; cue ⊥). Also the split-literal form `#Y: {b:2} & {d:4}`. Controls close: direct
+`#Y & {z:9}` (both faces reject); single-struct-literal re-ref `#Y: {b:2,d:4}` · `#X: #Y` (intrinsic
+closedness, rejects). This is the SAME class the batch was closing, via a third entry — confirming the
+recurring lesson: closedness residuals hide in def-body entry paths the normalization does not reach, and
+the per-arm `defBodyConjuncts` gate is the structural weakness (a `.refId` body bypasses it). Filed HIGH with
+red seed `testdata/wild/def-closedness-reref-drop/`.
+
+### Other-surface re-sweep
+
+Disj-defaults, number precision (`0.1+0.2 ⇒ 0.3`), bounds chains, interpolation, list ops (`list.Sum`), open
+embedding — all match cue v0.16.1. One additional divergence surfaced (orthogonal to the leak class):
+**DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM** — a def body conjoining a comprehension embedding with a struct
+literal (`#X: {for…} & {b:2}`) bottoms on ANY use-site unify incl. `& {}` (not closedness; cue admits). Filed
+HIGH, likely pre-existing; red seed `testdata/wild/def-comprehension-conjunct-usesite-bottom/`. The pure-comprehension
+use-site-field-add (`#X: {for…}` · `#X & {b:2}`) MATCHES cue (both ⊥) — that shape stays CLEAN.
+
+### MILESTONE RESULT: NOT REACHED
+
+A concrete closedness LEAK residual (DEF-CLOSEDNESS-REREF-DROP) was found in a def-body entry path
+(`.refId` body) that bypasses the nested-conj normalization. The milestone ("all soundness closedness leaks
+closed") is NOT substantiated. Fix direction: propagate a referent DEFINITION's derived closedness through a
+bare-`.refId` def body — better, route ALL def-body closedness through one point every top constructor flows
+through (design-out the per-arm-bypass class), so no new body shape can leak.
+
+No code change this audit (findings → plan.md fix-slices; two red seeds captured + quarantined). Full
+`check.sh` re-run green with the two new quarantined seeds. Alpha HELD (residual open).
