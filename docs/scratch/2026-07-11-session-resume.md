@@ -3,7 +3,25 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **STRING-BYTES-PROBE — differential probe of the bytes/string value family; one wrong-value
+HEAD: **BOUND-ORDEREDPRIM — illegal bound-operand states now unrepresentable (LANDED 2026-07-13,
+`7c8eedc`).** `boundConstraint` retyped from `(bound : Prim) (kind) (domain : NumberDomain)` to
+`(bound : OrderedPrim) (kind)`. `OrderedPrim` = ordered subset of Prim (int/float/string/bytes) with
+`NumberDomain` folded into the numeric arms ONLY — a null/bool operand and a domain-bearing string/bytes
+bound are both structurally impossible. `OrderedPrim.ofPrim?` (null/bool → none) is the single trust
+boundary; `toPrim` the inverse for compare/render. Shipped a 4-arm mirror (not the plan's 3-arm `number`
+sketch) because `formatBoundOperand`'s int-vs-float render is observable. DELETED the subsumed runtime
+guards: null/bool arms of `boundKindLabel`/`boundAdmitsKind`, the `number` sentinel + null/bool conflict
+arms in `meetBoundPrim`/`meetKindWithBound`, null/bool→⊥ arms in `evalBoundOp`/`parseBoundOperand`.
+PA-BOUND-DOMAIN-TYPE DISCHARGED. Behavior-preserving — whole suite green, ZERO flipped theorems (the
+proof); +4 `native_decide` unrepresentability theorems in `BoundTests.lean`. No `cue` divergence, no spec
+gap. **A two-phase AUDIT is now DUE** (this refactor + BINARY-CMP-BYTES + STRING-BYTES-PROBE = 3 slices
+since the 2026-07-13 Phase A/B). **NEXT (ranked):** the AUDIT → **float F1/F3/F5** (narrow, unblocked) →
+LOW gaps **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** / **DEF-FLATTEN-CLOSEDNESS-DISJ** (needs
+`wild/` repro first) → **PB-EVALBASE-SPLIT** nav-debt. **Alpha release remains HELD for chakrit
+(attended)** — a datestamped alpha is due; handoff: this slice is committed + pushed, release awaits your
+say-so.
+
+Prior HEAD: **STRING-BYTES-PROBE — differential probe of the bytes/string value family; one wrong-value
 defect found+fixed, rest measured GREEN (LANDED 2026-07-13).** Probed ~40 minimal cases vs cue v0.16.1
 across the gap corners (interpolation of every operand type, multiline `"""`/`'''`, unicode `len`
 [cue counts BYTES — both = 6 on `"héllo"`/`"a😀b"`], string slice/index [both ⊥], string↔bytes boundary
