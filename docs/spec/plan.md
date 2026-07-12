@@ -1226,8 +1226,16 @@ so the `| _ =>` ban does not apply.
   either resolve a struct-ref field-selection to a direct field target evaluated with cycle tracking
   (the `.thisStruct` path generalized), or distinguish a reference cycle (top) from a structural cycle
   (bottom) at the selection re-entry. Seed: `testdata/wild/self-conj-cycle-fieldsel/` (`.known-red`).
-- **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; PRE-EXISTING). OPEN — root-cause
-  pinned 2026-07-12 (Phase B).** A use-site adds fields a CLOSED multi-conjunct def should reject.
+- **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; PRE-EXISTING). ✅ LANDED
+  2026-07-12.** Fixed by widening `flattenConjDefRef`'s close gate with an `ownLiteralUnion`
+  disjunct (`EvalBase.lean` ~1960): fires when every non-`.refId` conjunct is `isUnionableDefValue`
+  and no `.refId` conjunct targets a DIFFERENT slot — so `#X: {a:1}&{b:3}` closes-once over `{a,b}`
+  via the Bug2-12b union path while `#LS: #Base & {extra}` (cross-def `.refId` conjunct) stays on
+  the OPEN-extension path. Seed `testdata/wild/def-flatten-closedness/` (RED→GREEN). 9 both-direction
+  guards in `Bug2xTests.lean` (`defflatten_*`): reject own-union extra/conflict/nested/closed-base-ext;
+  admit base/redeclare/opentail/open-extension/single-decl. kue matches cue v0.16.1 on every variant;
+  no divergence. Bug2-6/2-7 + L-series + mutual/multi-ref closedness suites all stay green.
+  A use-site adds fields a CLOSED multi-conjunct def should reject.
   `#X: {a:1} & {b:3}` + `y: #X & {c:4}` ⇒ kue `y: {a:1,b:3,c:4}` (closedness dropped ENTIRELY); cue
   rejects `c` (`field not allowed`). Contrast the single-decl `#X: {a:1, b:3}` + `y: #X & {c:4}` ⇒
   kue correctly `{a:1,b:3,c:_|_}` — its body is a single `.struct` (not a `.conj`), so

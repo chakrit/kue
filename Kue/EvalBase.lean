@@ -1957,7 +1957,27 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                     -- existing (distinct-meet) path.
                     let inCycle := defSlotInClosedCycle (frame.snd).length frame.snd
                       id.index.val [] [id.index.val]
-                    let close := field.fieldClass.isDefinition && (isSelfRef || inCycle)
+                    -- DEF-FLATTEN-CLOSEDNESS: a non-recursive def whose body UNIONS its OWN
+                    -- struct literals (`#X: {a:1} & {b:3}` — every conjunct a struct literal,
+                    -- no cross-def ref composition) has a FIXED field set, exactly like the
+                    -- single-decl `#X: {a:1, b:3}`. Without closing here those split literals
+                    -- flatten OPEN and a use-site `& {c:4}` leaks past closedness (an
+                    -- over-acceptance soundness bug). It closes over the COMBINED allowed-set via
+                    -- the same Bug2-12b union-then-close-once path. A def EXTENDING a reference
+                    -- (`#LS: #Base & {extra}` — a `.refId` conjunct to a DIFFERENT slot, or an
+                    -- outer-scope ref) is the legitimate OPEN-extension pattern: its closedness
+                    -- is composed by the outer close-once fold (Bug2-6..9), so it stays OPEN here.
+                    -- A self-ref conjunct (`.refId` to THIS depth-0 slot) is not cross-def
+                    -- composition, so it does not block the own-literal union (the isSelfRef
+                    -- case remains its subcase).
+                    let ownLiteralUnion :=
+                      cs.any isUnionableDefValue
+                      && cs.all fun c =>
+                        match c with
+                        | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
+                        | _ => isUnionableDefValue c
+                    let close := field.fieldClass.isDefinition
+                      && (isSelfRef || inCycle || ownLiteralUnion)
                     let expanded := cs.flatMap
                       (flattenConjDefRef env fuel (id.index.val :: expanding))
                     if close then

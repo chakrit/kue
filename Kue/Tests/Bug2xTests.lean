@@ -1188,6 +1188,77 @@ theorem bug212_multiref_dup_backref_admits :
       "{\n    \"out\": {\n        \"b\": 2,\n        \"a\": 1\n    }\n}\n" = true := by
   native_decide
 
+-- ### DEF-FLATTEN-CLOSEDNESS — a NON-recursive def unioning its OWN literals is CLOSED (RESOLVED).
+--
+-- `#X: {a:1} & {b:3}` is a CLOSED definition whose body unions its own struct literals — a FIXED
+-- field set `{a,b}`, exactly like the single-decl `#X: {a:1, b:3}`. A use-site `#X & {c:4}` must
+-- REJECT `c` (cue v0.16.1: `#X.c: field not allowed`). Pre-fix `flattenConjDefRef`'s close gate was
+-- `isDefinition && (isSelfRef || inCycle)`: this shape is neither self-ref nor in-cycle, so the
+-- literals flattened OPEN and `c` leaked (over-acceptance). FIXED by the `ownLiteralUnion` disjunct —
+-- fires when every non-`.refId` conjunct is `isUnionableDefValue` and no `.refId` conjunct targets a
+-- DIFFERENT slot — reusing the Bug2-12b union-then-close-once path. A def EXTENDING a reference
+-- (`#LS: #Base & {extra}`) keeps a cross-def `.refId` conjunct, so it stays on the OPEN-extension path
+-- (Bug2-6..9), proved by the open-extension guards below.
+
+-- REJECT (the bug, FLIPPED): a use-site extra `c` ∉ {a,b} on an own-literal-union def is rejected.
+theorem defflatten_ownunion_rejects_extra :
+    exportJsonBottoms "#X: {a: 1} & {b: 3}\ny: #X & {c: 4}\n" = true := by
+  native_decide
+
+-- BASE (no use-site narrow): the closed own-union yields `{a:1,b:3}` — closedness does not reject the
+-- def's own declared fields. cue `{a:1,b:3}`.
+theorem defflatten_ownunion_base_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3}\nout: #X\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- ADMIT (redeclare an existing field): `& {a:1}` is the def's OWN field, admitted + narrowed. cue agrees.
+theorem defflatten_ownunion_redeclare_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3}\nout: #X & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- CONFLICT (must bottom): a shared label re-declared with a conflicting value still `.conj`-meets and
+-- conflicts — closedness does not mask a real value clash. cue `conflicting values 3 and 99`.
+theorem defflatten_ownunion_conflict_bottoms :
+    exportJsonBottoms "#X: {a: 1} & {b: 3}\ny: #X & {b: 99}\n" = true := by
+  native_decide
+
+-- OPEN-TAIL (do NOT over-close): a `...` in ONE literal opens the union, so a use-site extra is
+-- ADMITTED — `unionDefOpenness` lets `defOpenViaTail` dominate across the own-literal union. cue admits.
+theorem defflatten_ownunion_opentail_admits :
+    exportJsonMatches "#X: {a: 1} & {b: 3, ...}\nout: #X & {c: 4}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 3,\n        \"c\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- NESTED (reject): closedness propagates into a nested struct literal across the own-union — an extra
+-- in `sub` is rejected. cue `field not allowed`.
+theorem defflatten_ownunion_nested_rejects :
+    exportJsonBottoms "#X: {sub: {s: 1}} & {t: 2}\ny: #X & {sub: {extra: 9}}\n" = true := by
+  native_decide
+
+-- OPEN-EXTENSION GUARD (must STAY open — the over-close boundary): a def EXTENDING an OPEN ref
+-- (`#Base: {a:1, ...}`, `#LS: #Base & {b:2}`) keeps a cross-def `.refId` conjunct, so `ownLiteralUnion`
+-- does NOT fire; the open base's `...` flows through the close-once fold and a use-site extra `c` is
+-- ADMITTED. Pins that the fix does not over-close the legitimate open-extension pattern. cue admits.
+theorem defflatten_open_extension_still_admits :
+    exportJsonMatches "#Base: {a: 1, ...}\n#LS: #Base & {b: 2}\nout: #LS & {c: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- CLOSED-BASE EXTENSION (reject): extending a CLOSED own-union def (`#A: {a:1} & {b:2}`) with a new
+-- field (`#B: #A & {c:3}`) rejects — `#A` is closed to `{a,b}`, so `c` is not allowed. The ref-extension
+-- path composes `#A`'s closedness correctly. cue `field not allowed`.
+theorem defflatten_closed_base_extension_rejects :
+    exportJsonBottoms "#A: {a: 1} & {b: 2}\n#B: #A & {c: 3}\nout: #B\n" = true := by
+  native_decide
+
+-- SINGLE-DECL anchor (already correct, must STAY green): the non-`.conj` body shape rejects the extra
+-- via the bare `.refId` arm, unchanged by this fix. cue rejects.
+theorem defflatten_singledecl_still_rejects :
+    exportJsonBottoms "#X: {a: 1, b: 3}\ny: #X & {c: 4}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)

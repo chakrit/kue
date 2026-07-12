@@ -3,7 +3,29 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **SELF-CONJ-CYCLE-INDIRECT — indirect reference-cycle wrong-value bug; index-layout shapes FIXED
+HEAD: **DEF-FLATTEN-CLOSEDNESS — multi-conjunct def flattened OPEN, dropping closedness; FIXED
+(LANDED 2026-07-12). Flatten/closedness cluster soundness CLOSED.** A CLOSED def unioning its OWN struct
+literals (`#X: {a:1} & {b:3}`) leaked an undeclared use-site field (`#X & {c:4}` ⇒ kue `{a:1,b:3,c:4}`;
+cue v0.16.1 rejects `c`). ROOT: `flattenConjDefRef` (`Kue/EvalBase.lean`) closed the flattened literals
+only when `isDefinition && (isSelfRef || inCycle)` — the own-literal-union shape is neither, so the split
+literals flattened OPEN and unioned into the use-site meet un-closed. FIX: widened `close` with an
+`ownLiteralUnion` disjunct — fires when `cs.any isUnionableDefValue` AND every conjunct is either a
+self-ref `.refId` (this depth-0 slot) or an `isUnionableDefValue` literal (i.e. the def's own literals,
+NO cross-def ref composition); reuses the Bug2-12b union-then-close-once path. A def EXTENDING a ref
+(`#LS: #Base & {extra}` — a cross-def `.refId` conjunct) does NOT fire it, staying on the OPEN-extension
+fold (Bug2-6..9) — proven by the `defflatten_open_extension_still_admits` guard. Wild seed
+`testdata/wild/def-flatten-closedness/` (RED→GREEN) + 9 `native_decide` both-direction guards
+(`Bug2xTests.lean` `defflatten_*`: reject own-union extra/conflict/nested/closed-base-ext; admit
+base/redeclare/opentail/open-extension/single-decl). kue == cue v0.16.1 on every swept variant; no
+divergence. `check.sh` fully green; Bug2-6/2-7 + L-series + mutual/multi-ref closedness suites unflipped.
+**NEXT (ranked — PIVOT to breadth, the flatten/closedness cluster is closed):** remaining scoping bugs
+**PATTERN-LABEL-ALIAS** / **LET-CYCLE-ERROR** (MED) → **SELF-SELECT-CYCLE-CROSSFRAME** (MED, cross-frame
+selector cycle, `testdata/wild/self-conj-cycle-fieldsel/` `.known-red`) → **UNREFERENCED-ALIAS** (LOW) →
+**BOUND-ORDEREDPRIM** / **BINARY-CMP-BYTES** (LOW) → F1/F3/F5 float → LOW audit findings (PA-ESC-2 /
+PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4 + the new PB module-split findings). A **two-phase AUDIT
+is DUE in ~2 slices**. The **alpha release remains HELD for chakrit (attended)** — see the release note below.
+
+Prior HEAD: **SELF-CONJ-CYCLE-INDIRECT — indirect reference-cycle wrong-value bug; index-layout shapes FIXED
 (LANDED 2026-07-12). Indirect cycle class CLOSED (dominant root); one distinct sub-root split out.**
 Instrument-first OBSERVED **two roots**, refuting Phase B's "two shapes, ONE root (thread `visited` through
 `.conj`)" design. ROOT #1 (closed): resolve/eval index-layout mismatch — `resolveStructRefs`/`buildFrame`

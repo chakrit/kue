@@ -21131,3 +21131,41 @@ Six wild fixtures (`self-conj-cycle-{sibling,dupfield,fwdref,indirect-resolve,co
 `self-conj-cycle-fieldsel` `.known-red`) + six `native_decide` pins in `EvalTests.lean`,
 including both-direction over-truncation guards (real conflict still ⊥; valid indirect resolve
 still resolves). `./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.
+
+---
+
+## Completed Slice: DEF-FLATTEN-CLOSEDNESS — multi-conjunct def flattens OPEN (MEDIUM soundness)
+
+Goal: fix an over-acceptance bug where a CLOSED definition unioning its own struct literals
+(`#X: {a:1} & {b:3}`) dropped closedness entirely — a use-site `#X & {c:4}` leaked the
+undeclared `c` (kue `{a:1,b:3,c:4}`; cue v0.16.1 rejects `c` as `field not allowed`). The
+single-decl `#X: {a:1, b:3}` shape was already correct.
+
+### Observed root
+
+`flattenConjDefRef` (`Kue/EvalBase.lean`) closed the flattened literals only when
+`isDefinition && (isSelfRef || inCycle)`. The multi-conjunct-of-own-literals shape is neither
+self-referential nor in a def→def cycle, so `close=false`: the split literals `{a:1}`,`{b:3}`
+flattened OPEN and unioned into the use-site meet without closing, so closedness never applied.
+
+### Fix
+
+Widened the `close` gate with an `ownLiteralUnion` disjunct: it fires when `cs.any
+isUnionableDefValue` AND every conjunct is either a `.refId` to THIS depth-0 slot (a self-ref,
+not cross-def composition) or an `isUnionableDefValue` struct literal. This reuses the existing
+Bug2-12b union-then-close-once path (`mergeDefinitionDecls` unions the literals into ONE body,
+closed once over the combined allowed-set `{a,b}`; a `...` in any literal keeps the union open;
+a shared label still `.conj`-meets so a real conflict survives). A def EXTENDING a reference
+(`#LS: #Base & {extra}`) carries a cross-def `.refId` conjunct, so `ownLiteralUnion` does NOT
+fire and it stays on the OPEN-extension close-once fold (Bug2-6..9), unchanged. `isSelfRef`/
+`inCycle` are retained: a self-ref with no literal, or a mutual def→def cycle, is not subsumed.
+
+### Tests
+
+Wild seed `testdata/wild/def-flatten-closedness/` (`.expected.err`, RED→GREEN). Nine
+`native_decide` both-direction guards in `Bug2xTests.lean` (`defflatten_*`): REJECT own-union
+extra / conflict / nested-extra / closed-base-extension; ADMIT base / redeclare / open-tail /
+open-extension (`#Base: {a:1,...}` still admits) / single-decl anchor. kue matches cue v0.16.1
+on every variant swept (own-union, redeclare, conflict, open-tail, open-base-ext, closed-base-ext,
+nested) — no divergence recorded. `./scripts/check.sh` fully green; Bug2-6/2-7 + L-series +
+mutual/multi-ref closedness suites unflipped.
