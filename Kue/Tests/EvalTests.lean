@@ -481,6 +481,40 @@ theorem meet_declsonly_struct_with_list_carrier_bottoms :
   native_decide
 -- └────────────────────────────────────────────────────────────────────────────────────────────┘
 
+-- ┌─ SELF-CONJ-CYCLE-INDIRECT (duplicate-field slot layout + reference-cycle truncation) ─┐
+-- Resolution indexes the DEDUPLICATED slot layout (`buildFrame` over `canonicalFieldLayout`),
+-- so a reference to a field sitting after a collapsed duplicate lands on its evaluator slot
+-- instead of a stale higher index that would dangle into `unresolvedBinding` → bottom. The
+-- reference cycle then truncates to top via the existing depth-0 `slotVisited` guard.
+theorem dupfield_forward_ref_resolves :
+    evalSourceMatches "x: 1\nx: y\ny: 1\n" "x: 1\ny: 1" = true := by
+  native_decide
+
+theorem sibling_cycle_truncates_to_top :
+    evalSourceMatches "x: 1\nx: y & int\ny: x\n" "x: 1\ny: 1" = true := by
+  native_decide
+
+-- A PLAIN sibling reference (not a conjunction) across a collapsed duplicate slot also
+-- resolves — the fix is the resolve/eval index-layout alignment, not a conj-only rebase.
+theorem plain_ref_across_collapsed_dup_resolves :
+    evalSourceMatches "x: 1\nx: 1\ny: 5\nz: y\n" "x: 1\ny: 5\nz: 5" = true := by
+  native_decide
+
+-- GUARD (over-truncation, one direction): a genuine conflict must STILL bottom.
+theorem direct_self_conflict_still_bottoms :
+    exportJsonBottoms "x: 1\nx: x & 2\n" = true := by
+  native_decide
+
+theorem cyclic_conflict_still_bottoms :
+    exportJsonBottoms "x: 1\nx: y\ny: 2\n" = true := by
+  native_decide
+
+-- GUARD (over-truncation, other direction): a legitimate indirect resolve must STILL resolve.
+theorem indirect_field_selection_still_resolves :
+    evalSourceMatches "x: {a: 1}\nx: {b: x.a}\n" "x: {a: 1, b: 1}" = true := by
+  native_decide
+-- └────────────────────────────────────────────────────────────────────────────────────────────┘
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_static_string_field_index                       -- static selectors / indices
@@ -490,5 +524,6 @@ theorem meet_declsonly_struct_with_list_carrier_bottoms :
 #check @scalar_embed_two_distinct_conflicts                  -- scalar struct-embedding collapse
 #check @field_struct_then_scalar_conflicts                   -- empty struct meet scalar
 #check @meet_declsonly_struct_with_list_carrier_bottoms      -- scalar/list decl carriers
+#check @indirect_field_selection_still_resolves              -- dedup slot layout + cycle guards
 
 end Kue

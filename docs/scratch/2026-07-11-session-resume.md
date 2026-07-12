@@ -3,22 +3,32 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **SELF-CONJ-CYCLE — nested self-reference truncates to top; HIGH correctness bug FIXED (LANDED 2026-07-12).**
-A field body with a self-ref BURIED below its top-level conjuncts (`x:1`+`x: x & int` → `.conj[1,(x&int)]`;
-single-field `x: (x & int) & 1`) bottomed instead of collapsing to top. ROOT: `flattenConjDefRef`
-(`Kue/EvalBase.lean`) inlined the self-referential body, REPLACING the bare `refId x` with x's body and
-re-burying the self-ref one level deeper each pass; its `expanding` guard bounds only DIRECT top-level
-self-ref conjuncts (Bug2-12), so a nested one escaped, unrolled to fuel exhaustion, and bottomed — the
-`slotVisited⇒truncate .top` guard in the `.refId` arm was never reached. FIX: `flattenConjDefRef` bails
-(ref UNEXPANDED) when a non-direct-self-ref body conjunct transitively references the same slot at depth 0
-(new `valueMentionsSlotAtDepth`); the bare ref then flows to the `.refId` arm and truncates. Root-cause,
-not a shape special-case. Over-truncation guarded (`x:1`+`x: x & 2` and `x: (x & 2) & 1` STILL `_|_` — real
-conflict survives). Seed `testdata/wild/self-conj-cycle/` un-quarantined (wild gate enforces green); 9
-`Bug2xTests` theorems added. `check.sh` fully green, zero fixtures/theorems flipped (Bug2xTests cycle core intact).
-**NEXT (ranked):** remaining scoping seeds — **PATTERN-LABEL-ALIAS** / **LET-CYCLE-ERROR** (MED) →
-**UNREFERENCED-ALIAS** (LOW). Then a **two-phase AUDIT is DUE** (4 slices since last: BINARY-CMP-OPERAND,
-BOUND-OPERAND-CLASSIFY, SCOPING-PROBE, SELF-CONJ-CYCLE). Then the **DUE alpha release** (see below). Then
-BOUND-ORDEREDPRIM / BINARY-CMP-BYTES / F1/F3/F5 / LOW audit findings.
+HEAD: **SELF-CONJ-CYCLE-INDIRECT — indirect reference-cycle wrong-value bug; index-layout shapes FIXED
+(LANDED 2026-07-12). Indirect cycle class CLOSED (dominant root); one distinct sub-root split out.**
+Instrument-first OBSERVED **two roots**, refuting Phase B's "two shapes, ONE root (thread `visited` through
+`.conj`)" design. ROOT #1 (closed): resolve/eval index-layout mismatch — `resolveStructRefs`/`buildFrame`
+indexed the RAW duplicate-bearing field layout while the evaluator indexes the DEDUPLICATED layout
+(`canonicalizeFields`); collapsing a duplicate shifts later fields' indices down, so a forward reference
+across the collapse (`x:1; x:y; y:1`; also a PLAIN sibling `x:1; x:1; y:5; z:y`) kept a stale index and
+dangled into `unresolvedBinding` → `meet(concrete,⊥)=⊥`, BEFORE the existing `slotVisited⇒truncate .top`
+guard could apply. `visited` was already threaded — Phase B misdiagnosed. FIX: `buildFrame` (`Kue/Resolve.lean`)
+now indexes `canonicalFieldLayout fields` (class-level mirror of `canonicalizeFields` via `mergeFieldClass`;
+imported `Kue.Lattice`), so resolve+eval agree by construction. Shapes closed: dupfield + sibling
+(`x:1; x:y&int; y:x`). `valueMentionsSlotAtDepth` NOT removed (handles a nested-self-ref burial the fix
+doesn't touch — retracts the PB-FOLD-PLACEMENT "may be removed" note). ROOT #2 (split out): shape 2
+`x:{a:1}; x:{a:x.a}` is a cross-frame selector reference-cycle (`x.a` forces the whole enclosing struct via a
+depth-1 self-ref, and the frame-relative `visited` resets across the frame → structural-cycle bottom instead
+of ref-cycle top) — re-filed **SELF-SELECT-CYCLE-CROSSFRAME (MED)**, quarantined
+`testdata/wild/self-conj-cycle-fieldsel/` `.known-red`. 6 wild seeds (5 GREEN incl. both-direction guards:
+real conflict still ⊥, valid indirect resolve still resolves; 1 known-red) + 6 `native_decide` pins in
+`EvalTests.lean`. `check.sh` fully green, zero fixtures/theorems flipped (cycle-detection core intact).
+**NEXT (ranked):** **DEF-FLATTEN-CLOSEDNESS** (MED, now stands ALONE on `flattenConjDefRef` — the prior
+"coordinate with the cycle fix" coupling is VOID, cycle fix landed in `Resolve.lean`) → remaining scoping
+seeds **SELF-SELECT-CYCLE-CROSSFRAME** / **PATTERN-LABEL-ALIAS** / **LET-CYCLE-ERROR** (MED) →
+**UNREFERENCED-ALIAS** (LOW). A **two-phase AUDIT is DUE** (≥5 slices since last: BINARY-CMP-OPERAND,
+BOUND-OPERAND-CLASSIFY, SCOPING-PROBE, SELF-CONJ-CYCLE, SELF-CONJ-CYCLE-INDIRECT). Then the **DUE alpha
+release** (HELD for chakrit — attended; see below). Then BOUND-ORDEREDPRIM / BINARY-CMP-BYTES / F1/F3/F5 /
+LOW audit findings.
 
 Prior HEAD: **SCOPING-PROBE — scoping / reference-resolution surface MEASURED, four defects seeded (2026-07-12).**
 Systematic differential vs cue v0.16.1 over lexical scoping + reference resolution. Clean majority PINNED

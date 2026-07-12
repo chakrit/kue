@@ -1174,50 +1174,58 @@ on genuinely-buried same-slot mentions. `valueMentionsSlotAtDepth`/`foldValueWit
 fuel-bounded; the leaf's `| _ => none` means "descend structurally" (NOT a Value-producing dispatch),
 so the `| _ =>` ban does not apply.
 
-- **SELF-CONJ-CYCLE-INDIRECT (HIGH correctness — wrong value; kue BUG). OPEN — DESIGNED 2026-07-12
-  (Phase B), needs fix-slice.** The two shapes below plus the `0091463`-fixed direct shape are ONE
-  class with ONE root layer.
+- **SELF-CONJ-CYCLE-INDIRECT (HIGH correctness — wrong value; kue BUG). ✅ LANDED 2026-07-12 for the
+  index-layout shapes; shape 2 (field-selection cycle) re-filed as SELF-SELECT-CYCLE-CROSSFRAME.**
+  Phase B's "two shapes, ONE root layer" framing was INCORRECT — instrumentation (this slice, per the
+  mandatory instrument-first order) OBSERVED **two distinct roots**.
 
-  **Root layer (Phase-B observation, isolated).** The reference-cycle→top rule fires correctly at
-  REFERENCE-RESOLUTION time — the `slotVisited id.index.val visited ⇒ truncate .top` guard in the
-  `.refId` eval arm (`Kue/Eval.lean:303`). Confirmed: `x: y` + `y: x` ⇒ `{x:_, y:_}` (top, ==cue);
-  `x: 1 & y` + `y: 1` (a PARSED single meet, `.binary`/`.conj` arm) ⇒ `{x:1}` (==cue). The bug is
-  that the **`.conj` EVAL path** (`evalConjStandard`, reached ONLY for duplicate-field-canonicalized
-  bodies and multi-conjunct-def flatten — NOT for a parsed single `&`) does NOT honor that same
-  `visited` truncation. Isolation: `x: 1` + `x: y` + `y: 1` ⇒ kue `x:_|_` (y correctly `1`, yet
-  `x = 1 & y = 1 & 1` bottoms); the ONLY difference from the working `x: 1 & y` is that duplicate
-  fields canonicalize into a `.conj` slot body (`canonicalizeFields`→`joinUnevaluated`) routed
-  through `evalConjStandard`, whereas the single expression stays a `.binary` meet. The `0091463`
-  fix (`valueMentionsSlotAtDepth` bail in `flattenConjDefRef`) patched ONE escape (a DIRECT same-slot
-  mention) by routing it back to the `.refId` arm; the two shapes below are the SAME escape reached
-  through indirection, and widening the mention-scan would be a THIRD shape-specific flatten-time
-  bail — the wrong layer.
+  **OBSERVED root #1 — resolve/eval index-layout mismatch (NOT a `visited`-truncation gap; closed).**
+  `resolveStructRefs`/`buildFrame` assigned lexical slot indices against the RAW (duplicate-bearing)
+  field layout, while the evaluator indexes the DEDUPLICATED layout (`canonicalizeFields`). When two
+  same-label fields collapse into one canonical slot, every field AFTER the collapse shifts down one
+  index — but a reference authored against the raw layout kept its stale higher index and dangled into
+  `unresolvedBinding` → `meet(concrete, ⊥) = ⊥`, BEFORE the existing depth-0 `slotVisited ⇒ truncate
+  .top` guard could ever apply. Pinned by tracing the `evalConjStandard` none-branch meet: for
+  `x:1; x:y; y:1` the merged `x` body was `[prim 1, refId{index:2}]` and `refId{index:2}` resolved to
+  `unresolvedBinding{index:2}` against the 2-slot canonical frame (`x@0, y@1`). This affects ANY
+  forward reference across a collapsed duplicate — including a PLAIN sibling field (`x:1; x:1; y:5;
+  z:y`), proving it is NOT confined to merged `.conj` bodies. **Fix:** `buildFrame` now indexes
+  `canonicalFieldLayout fields` (a class-level mirror of `canonicalizeFields`' collapse decision, via
+  `mergeFieldClass`), so resolve and eval agree by construction; the reference cycle then truncates via
+  the existing `.refId` guard, unchanged. Shapes closed: `x:1; x:y; y:1` (dupfield) and `x:1; x:y&int;
+  y:x` (sibling — Phase B's shape 1, also index-layout, not a cycle-path gap).
 
-  Two shapes (pre-existing, NOT `0091463` regressions — neither triggers the new bail):
-  1. **Transitive-through-sibling:** `x: 1` + `x: y & int` + `y: x` ⇒ kue `_|_`; cue `{x:1, y:1}`.
-  2. **Self-cycle via own-field selection (multi-decl):** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue
-     `{x:{a:_|_}}`; cue `{x: {a: 1}}` (inner `a: x.a` = `a: a` → cycle→top → a stays 1).
+  Phase B's designed fix (thread `visited` through the `.conj` path) was a MISDIAGNOSIS: `visited` is
+  already threaded through `evalConjStandard`'s none-branch — the static trace that predicted the
+  correct value was right about the truncation; the escape was upstream, at reference RESOLUTION. The
+  `0091463` `valueMentionsSlotAtDepth` bail was NOT removed — it handles a nested self-ref burial
+  (`x: (x & int) & 1`) the index-layout fix does not touch, so it is not subsumed.
 
-  **DESIGNED FIX — reference-resolution-time truncation as the SINGLE authority (not a flatten-time
-  bail).** Thread the `visited` set THROUGH the `.conj` evaluation path so a conjunct that resolves
-  (directly or transitively) to an in-progress slot hits the same `slotVisited ⇒ truncate .top`
-  rule the `.refId`/`.binary` arm already uses — uniformly, regardless of how the slot re-entry is
-  reached. Once the `.conj` path truncates uniformly, the `0091463` `valueMentionsSlotAtDepth` bail
-  is SUBSUMED and should be removed (a shape-specific patch the uniform rule replaces) — the fix is
-  a net simplification, not a third guard. Spec-adjudicated target per shape (cue v0.16.1, verified):
-  a reference participating in a cycle during its own evaluation truncates to `_` (top), and the
-  co-present concrete conjunct then dominates the meet — shape 1 ⇒ `{x:1,y:1}`, shape 2 ⇒
-  `{x:{a:1}}`, both spec-correct and cue-matching.
+  **OBSERVED root #2 — cross-frame selector reference-cycle (re-filed, QUARANTINED).** Shape 2
+  `x: {a: 1}` + `x: {a: x.a}` (⇒ kue `{x:{a:_|_}}`; cue `{x:{a:1}}`) has NO index shift. Its `_|_` is a
+  distinct mechanism: `x.a` is evaluated by eagerly forcing the WHOLE enclosing struct `x` via a
+  depth-1 self-reference, re-entering the in-progress `a` field; the frame-relative `visited` set
+  RESETS on the depth-1 frame crossing (child-frame slot indices are meaningless in the parent), so the
+  self-selection cycle (`a → a`) is not detected and bottoms structurally instead of truncating to top.
+  Seed `testdata/wild/self-conj-cycle-fieldsel/` (`.known-red`). See SELF-SELECT-CYCLE-CROSSFRAME below.
 
-  **Implementing-slice caveat (HONEST — the escape line is NOT yet pinned).** A static trace of
-  `evalConjStandard` PREDICTS the correct value (the `none`-branch `mapM` passes `visited` and
-  `refId_y` truncates) — it disagrees with the observed `_|_`, so a hidden re-frame / re-resolve in
-  the `lazyConjMergedFields`/`canonicalizeFields`/`flattenConjDefRef` sub-path is dropping the
-  `visited` context, and reading alone did not locate it. The slice MUST instrument (trace which
-  sub-eval loses `visited`) to pin the exact escape before touching code — do not narrate a locus.
-  Capture BOTH shapes (plus a `x:1;x:y;y:1` and `x:1;x:y;y:2`-conflict guard, and the working
-  `x: 1 & y` non-regression) as `testdata/wild/` seeds FIRST (red), then fix to green. NOT a release
-  blocker (pre-existing, not a regression).
+  **Seeds (this slice):** `self-conj-cycle-{sibling,dupfield,fwdref}` GREEN; over-truncation guards
+  `self-conj-cycle-{conflict,indirect-resolve}` GREEN (real conflict still ⊥; valid indirect resolve
+  still resolves); `self-conj-cycle-fieldsel` QUARANTINED. Lean pins in `EvalTests.lean`
+  (`dupfield_forward_ref_resolves`, `sibling_cycle_truncates_to_top`,
+  `plain_ref_across_collapsed_dup_resolves`, `direct_self_conflict_still_bottoms`,
+  `cyclic_conflict_still_bottoms`, `indirect_field_selection_still_resolves`).
+- **SELF-SELECT-CYCLE-CROSSFRAME (MED correctness — wrong value; kue BUG). OPEN — root OBSERVED
+  2026-07-12 (split out of SELF-CONJ-CYCLE-INDIRECT).** `x: {a: 1}` + `x: {a: x.a}` ⇒ kue `{x:{a:_|_}}`;
+  cue v0.16.1 `{x:{a:1}}` (`a: x.a` = `a` referencing itself → reference cycle → top → `a = 1 & _ = 1`).
+  **Observed mechanism:** `x.a` (a depth-1 self-selection) forces the whole enclosing struct `x`,
+  re-entering the in-progress `a` field; the depth-0-relative `visited` cycle guard cannot cross the
+  frame boundary (it carries frame-local slot indices), so the re-entry hits structural-cycle bottoming
+  instead of reference-cycle truncation-to-top. **Fix direction (NOT designed):** a cross-frame
+  reference-cycle needs cycle identity the frame-relative `visited` set structurally cannot provide —
+  either resolve a struct-ref field-selection to a direct field target evaluated with cycle tracking
+  (the `.thisStruct` path generalized), or distinguish a reference cycle (top) from a structural cycle
+  (bottom) at the selection re-entry. Seed: `testdata/wild/self-conj-cycle-fieldsel/` (`.known-red`).
 - **DEF-FLATTEN-CLOSEDNESS (MEDIUM correctness — kue too lenient; PRE-EXISTING). OPEN — root-cause
   pinned 2026-07-12 (Phase B).** A use-site adds fields a CLOSED multi-conjunct def should reject.
   `#X: {a:1} & {b:3}` + `y: #X & {c:4}` ⇒ kue `y: {a:1,b:3,c:4}` (closedness dropped ENTIRELY); cue
@@ -1235,16 +1243,20 @@ so the `| _ =>` ban does not apply.
   the def's own split literals* (all `isUnionableDefValue`), which the self-recursive case is only a
   sub-case of.
 
-  **Coupling verdict: SAME FUNCTION as SELF-CONJ-CYCLE-INDIRECT (`flattenConjDefRef`), INDEPENDENT
-  concern — no shared fix.** The cycle fix is about routing cyclic re-entry to `visited`-truncation;
-  this is about preserving closed-clauses through a non-cyclic literal-split flatten. **DESIGNED
+  **Coupling verdict (SUPERSEDED 2026-07-12).** The prior verdict said "SAME FUNCTION as
+  SELF-CONJ-CYCLE-INDIRECT (`flattenConjDefRef`)". That assumed the cycle fix would land in
+  `flattenConjDefRef`; it did NOT — the SELF-CONJ-CYCLE-INDIRECT root was a resolve-layer index-layout
+  mismatch fixed in `Kue/Resolve.lean` (`buildFrame`/`canonicalFieldLayout`), untouched
+  `flattenConjDefRef`. So there is NO function-level coupling and NO rebase-collision to coordinate;
+  DEF-FLATTEN-CLOSEDNESS stands alone on `flattenConjDefRef`. **DESIGNED
   FIX:** widen `close` to also fire when every non-`.refId` body conjunct is `isUnionableDefValue`
   (the def's own literals) with NO cross-def ref-composition conjunct — so `{a:1}&{b:3}` closes-once
   over `{a,b}` while `#LS: #Base & {extra}` (a REF conjunct present) stays OPEN and defers to the
   outer close-once fold (Bug2-6..9), unchanged. Also covers the mutual-def variant `#A: #B & {a:int}`
   + `#B: #A & {b:int}` + `x: #A & {a:1,b:2}` (already partially served by `inCycle`; verify).
-  Sequence: touches the same function as the cycle fix — coordinate the two slices (land one, rebase
-  the other) to avoid churn collision; they are NOT one change. Seed a `testdata/wild/` repro FIRST.
+  Sequence: no coordination needed — the SELF-CONJ-CYCLE-INDIRECT fix landed in `Kue/Resolve.lean`,
+  not `flattenConjDefRef`, so this slice owns `flattenConjDefRef` alone. Seed a `testdata/wild/` repro
+  FIRST.
 
 ### PHASE B AUDIT (2026-07-12, whole-graph + infra rotation) — module-graph + gates/release
 

@@ -1,4 +1,5 @@
 import Kue.Value
+import Kue.Lattice
 
 namespace Kue
 
@@ -13,8 +14,26 @@ def buildFrameFrom (index : Nat) : List Field -> List (String × Nat)
   | [] => []
   | field :: fields => (Field.label field, index) :: buildFrameFrom (index + 1) fields
 
+/--
+The deduplicated slot layout the evaluator indexes, mirroring `canonicalizeFields`'
+collapse decision at the class level (`mergeUnevaluatedFieldInto`): a field collapses
+into the FIRST kept slot of the same label whose field-class merges; a same-label slot
+whose class does NOT merge (a `let`/`import` binding against a regular field) is kept
+separate. Resolution must assign lexical indices against THIS layout — not the raw
+positional one — so a reference to a field sitting after a collapsed duplicate lands on
+its evaluator slot rather than a stale higher index that dangles into `unresolvedBinding`.
+-/
+def canonicalFieldLayout (fields : List Field) : List Field :=
+  fields.foldl
+    (fun kept field =>
+      match kept.find? (fun k => Field.label k = Field.label field) with
+      | some k => if (mergeFieldClass (Field.fieldClass k) (Field.fieldClass field)).isSome
+          then kept else kept ++ [field]
+      | none => kept ++ [field])
+    []
+
 def buildFrame (fields : List Field) : List (String × Nat) :=
-  buildFrameFrom 0 fields
+  buildFrameFrom 0 (canonicalFieldLayout fields)
 
 def findInFrame (label : String) : List (String × Nat) -> Option Nat
   | [] => none

@@ -21082,3 +21082,52 @@ fix), PB-PRIM-CATCHALL (LOW, `Prim` catch-alls in math/list builtins), PB-FIXTUR
 No inline code changes: the two real correctness findings are HIGH/MEDIUM designed fix-slices, and
 the only inline-eligible cleanups (PB-CHECK-COMMENT/PB-VERSION-CONST) were filed rather than fixed to
 keep this a clean docs-only audit and avoid mixing a code edit into the audit commit. Build unchanged.
+
+---
+
+## Completed Slice: SELF-CONJ-CYCLE-INDIRECT (index-layout shapes)
+
+Goal: fix the HIGH wrong-value bug where duplicate-field merges with a forward reference
+across the collapsed slot produced `_|_` instead of resolving (`x:1; x:y; y:1` ⇒ kue
+`_|_`, cue `{x:1,y:1}`).
+
+### Observed root (instrument-first, per the mandatory order)
+
+Traced `evalConjStandard`'s meet operands. For `x:1; x:y; y:1` the merged `x` body was
+`[prim 1, refId{index:2}]`; `refId{index:2}` resolved to `unresolvedBinding{index:2}`
+against the 2-slot canonical frame (`x@0, y@1`) → `meet(1, ⊥) = ⊥`. Root: `resolveStructRefs`
+/`buildFrame` assign lexical indices against the RAW (duplicate-bearing) layout, while the
+evaluator indexes the DEDUPLICATED layout (`canonicalizeFields`). Collapsing a duplicate
+shifts every later field's index down, but a reference authored against the raw layout keeps
+its stale higher index and dangles. This is NOT the `visited`-truncation gap Phase B designed:
+`visited` is already threaded through the none-branch; the escape is upstream at resolution.
+Confirmed general (not conj-only) by `x:1; x:1; y:5; z:y` — a PLAIN sibling `z:y` dangles too.
+
+### Fix
+
+`buildFrame` (`Kue/Resolve.lean`) now indexes `canonicalFieldLayout fields` — a class-level
+mirror of `canonicalizeFields`' collapse decision (a field folds into the first kept slot of
+the same label whose `mergeFieldClass` succeeds; a class-incompatible same-label slot, e.g. a
+`let` vs a field, stays separate). Resolve and eval then agree on the slot layout by
+construction, and the reference cycle truncates via the existing depth-0 `slotVisited` guard,
+unchanged. Imported `Kue.Lattice` into `Resolve` for `mergeFieldClass` (no import cycle:
+only `Runtime` imports `Resolve`).
+
+The `0091463` `valueMentionsSlotAtDepth` bail was NOT removed — it handles a nested self-ref
+burial (`x: (x & int) & 1`) the index-layout fix does not touch, so it is not subsumed
+(retracts the PB-FOLD-PLACEMENT / SELF-CONJ-CYCLE-INDIRECT "may be removed by the cycle fix"
+note).
+
+### Split-out finding
+
+Shape 2 (`x:{a:1}; x:{a:x.a}`) is a DISTINCT root — a cross-frame selector reference-cycle
+the frame-relative `visited` set structurally cannot catch — re-filed as
+SELF-SELECT-CYCLE-CROSSFRAME and quarantined (`testdata/wild/self-conj-cycle-fieldsel/`,
+`.known-red`). Phase B's "two shapes, one root" framing was incorrect.
+
+### Tests
+
+Six wild fixtures (`self-conj-cycle-{sibling,dupfield,fwdref,indirect-resolve,conflict}` GREEN,
+`self-conj-cycle-fieldsel` `.known-red`) + six `native_decide` pins in `EvalTests.lean`,
+including both-direction over-truncation guards (real conflict still ⊥; valid indirect resolve
+still resolves). `./scripts/check.sh` fully green; zero existing fixtures/theorems flipped.
