@@ -956,27 +956,21 @@ theorems: `ComprehensionTests` `listcomp_for_kv_skips_nonregular`/`structcomp_fo
 `StructTests` `pattern_via_unification_constrains_added_field`/`pattern_explicit_field_must_satisfy`/
 `pattern_matches_dynamic_field`.
 
-- **PATTERN-BOUND-REF-OPERAND (parser completeness; FILE — parser+evaluator, soundness-adjacent).**
-  kue's parser accepts only LITERAL operands for relational/bound operators: `parseBoundValue`
-  (`Kue/Parse.lean`) wants a numeric literal for `> >= < <=`; the `=~`/`!~` arms call
-  `parseQuotedString` (string literal); `!=` wants a `.prim`. A REFERENCE or any expression
-  operand — `x: >k`, `{[=~_re]: int}`, `{[>k]: int}`, `<len(y)` — fails to parse ("expected
-  string literal" / "expected number digits"). cue v0.16.1 accepts all: CUE grammar has
-  `unary_op = … | rel_op` with an arbitrary `UnaryExpr` operand. kue is WRONG (over-restrictive) —
-  rejects valid CUE. **Fix is broad + soundness-core, red-seeded not forced (AFK):** the bound
-  `Value` repr must carry an UNRESOLVED operand expression; the parser must parse a general
-  `UnaryExpr` operand for every rel_op; the evaluator must evaluate the operand (deferring on
-  incomplete) before applying the relation. Bounds are pervasive → own careful attended slice.
-  Red seed `testdata/wild/pattern-bound-reference-operand/` (`.known-red`; spec-adjudicated
-  expected). NOT a cue-divergence (cue is spec-correct here); a plain kue completeness bug.
-  **CORE-CONFORMANCE-PROBE (2026-07-12) added a second facet:** a LITERAL string/bytes bound
-  operand (`x: <"m"`, `x: >='a'`, `{[>"m"]: int}`) — NO reference, no deferral, yet still
-  unrepresentable because `boundConstraint (bound : DecimalValue)` is numeric-only. Bounds
-  apply to any ORDERED type (numbers, strings lexically by code point, bytes by byte order);
-  the fix must generalize the bound operand from `DecimalValue` to a `Prim`-or-expression and
-  teach meet/order/manifest lexical string + byte-order comparison — the SAME core change, so
-  both facets land together. Second red seed `testdata/wild/pattern-bound-string-operand/`
-  (`.known-red`). Probe otherwise found the pattern-constraint surface CONFORMING: regex label
+- **PATTERN-BOUND-REF-OPERAND ✅ LANDED 2026-07-12 (PATTERN-BOUND-OPERAND) — both facets graduated.**
+  Comparator bounds now apply to ANY ordered type, and non-literal operands defer+lower.
+  `boundConstraint`'s operand generalized `DecimalValue → Prim` (number/string/bytes); one total
+  `primOrdCompare?` + `BoundKind.admitsPrim?` drive every bound comparison (numeric decimal,
+  string lexical by code point, bytes by byte order); meet/order/format/join all route through it.
+  `string & <"m"` drops the redundant kind, `int & <"m"` and `>5 & >"m"` conflict, `<"m" & !="a"`
+  and `=~"^a" & <"m"` conjoin — all byte-parity with cue v0.16.1. **Facet 2 (reference/expression
+  operands):** `UnaryOp` gained `boundOp`/`neOp`/`regexMatchOp`; the parser emits a deferred
+  `.unary` node for a non-literal operand (`>k`, `{[=~_re]: int}`, `<len(x)`), which `evalUnary`
+  lowers to the concrete validator once the operand is ground (per CUE grammar
+  `unary_op = … | rel_op`). Both seeds `testdata/wild/pattern-bound-{string,reference}-operand/`
+  GRADUATED (`.known-red` removed). Theorems: `BoundTests` (string/bytes/tighten/notPrim/regex/
+  kind-drop/type-mismatch/cross-family/format/numeric-regression) + `EvalOpsTests` deferred-
+  lowering section. NOT a cue-divergence (cue was spec-correct); a kue completeness bug, now fixed.
+  Probe otherwise found the pattern-constraint surface CONFORMING: regex label
   filtering, overlapping-pattern constraint intersection (incl. comparator-bound values),
   recursive patterns, unification-introduced patterns, disjunction-valued patterns all
   byte-identical to cue — now MEASURED + pinned (`testdata/export/pattern_constraints.{cue,json}`

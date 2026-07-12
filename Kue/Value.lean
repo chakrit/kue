@@ -133,12 +133,6 @@ def formatDecimalAtScale (value : DecimalValue) (forceFloat : Bool) : String :=
 def formatFiniteDecimal (value : DecimalValue) (forceFloat : Bool) : String :=
   formatDecimalAtScale (trimDecimalZerosWith value.numerator value.scale) forceFloat
 
-/-- Render a bound's decimal limit as CUE prints it inside a bound (`>0`, `>0.5`,
-    `>-1.5`): the trimmed value at minimal scale, never force-floated (a whole limit
-    prints as an integer, `>0` not `>0.0`). -/
-def formatBoundLimit (value : DecimalValue) : String :=
-  formatFiniteDecimal value false
-
 /-- The per-format knobs of the GDA float renderer. CUE's decimal output form is
     spec-silent (the spec pins values, not textual form), so Kue matches `cue` per
     output surface: JSON/YAML use uppercase `E`; JSON prints a whole float bare
@@ -337,6 +331,46 @@ def decimalFromPrim? : Prim -> Option DecimalValue
   | .float value _ => some value
   | _ => none
 
+/-- Lexical `<` over code-point lists: shorter-is-smaller on a common prefix, else the first
+    differing element decides. The shared engine for string (by `Char` code point) and byte
+    (by `UInt8`) order. -/
+def charsLt : List Char -> List Char -> Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | left :: leftRest, right :: rightRest =>
+      if left.toNat == right.toNat then charsLt leftRest rightRest
+      else left.toNat < right.toNat
+
+def bytesLt : List UInt8 -> List UInt8 -> Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | left :: leftRest, right :: rightRest =>
+      if left == right then bytesLt leftRest rightRest
+      else left < right
+
+/-- Total order between two ORDERED ground prims of a matching family — numbers by exact
+    base-10 value (int and float interchange), strings lexically by code point, bytes by byte
+    order. `none` when the two are incomparable: different families (`"m"` vs `5`) or a
+    non-ordered kind (`null`/`bool`). The single ordered-comparison entry point for bound
+    constraints, so a bound over any ordered type routes through one total function. -/
+def primOrdCompare? (left right : Prim) : Option Ordering :=
+  match decimalFromPrim? left, decimalFromPrim? right with
+  | some l, some r =>
+      some (if decimalLtValues l r then .lt else if decimalLtValues r l then .gt else .eq)
+  | _, _ =>
+      match left, right with
+      | .string l, .string r =>
+          let l := l.toList
+          let r := r.toList
+          some (if charsLt l r then .lt else if charsLt r l then .gt else .eq)
+      | .bytes l, .bytes r =>
+          let l := l.toList
+          let r := r.toList
+          some (if bytesLt l r then .lt else if bytesLt r l then .gt else .eq)
+      | _, _ => none
+
 /-- The numeric domain a bound constrains. A bare bound (`>0`) is `number` — it admits
     both `int` and `float` operands, matching CUE (`>0 & 1.5` ⇒ `1.5`). Meeting with a
     `kind` narrows it: `int & >0` ⇒ `int`-domain (rejects floats), `float & >0` ⇒
@@ -437,12 +471,55 @@ def admits (kind : BoundKind) (limit value : DecimalValue) : Bool :=
   | .le => decimalLeValues value limit
   | .lt => decimalLtValues value limit
 
+/-- Does `value` satisfy a bound of this kind against ordered `limit`, for ANY ordered type
+    (numbers, strings lexically, bytes by byte order)? `none` when `value` is incomparable to
+    `limit` (different family or a non-ordered kind) — a type-mismatch the caller reports as a
+    kind conflict. -/
+def admitsPrim? (kind : BoundKind) (limit value : Prim) : Option Bool :=
+  match primOrdCompare? value limit with
+  | none => none
+  | some ord =>
+      some (match kind with
+        | .ge => ord != .lt
+        | .gt => ord == .gt
+        | .le => ord != .gt
+        | .lt => ord == .lt)
+
 end BoundKind
+
+/-- The `Kind` a bound's operand belongs to, for conflict messages and family tests. A numeric
+    bound reports its `domain`'s kind (`number`/`int`/`float`); a string/bytes bound its own. -/
+def boundKindLabel (bound : Prim) (domain : NumberDomain) : Kind :=
+  match bound with
+  | .int _ | .float _ _ => domain.kind
+  | .string _ => .string
+  | .bytes _ => .bytes
+  | .null => .null
+  | .bool _ => .bool
+
+/-- Can a prim of kind `k` be admitted by this bound? A numeric bound gates by `domain`
+    (`number` admits int+float); a string/bytes bound admits only its own family. Decides
+    whether a `!=p` sits INSIDE a bound's domain (so both are retained) or is disjoint. -/
+def boundAdmitsKind (bound : Prim) (domain : NumberDomain) (k : Kind) : Bool :=
+  match bound with
+  | .int _ | .float _ _ => domain.admitsKind k
+  | .string _ => k == .string
+  | .bytes _ => k == .bytes
+  | .null | .bool _ => false
 
 inductive UnaryOp where
   | boolNot
   | numPos
   | numNeg
+  /-- A relational/bound operator whose operand was not a literal at parse time (`x: >k`,
+      `{[=~_re]: int}`, `<len(y)`). Per CUE grammar `unary_op = … | rel_op`, so a comparator
+      applied to an arbitrary `UnaryExpr` is a unary op. It stays a deferred `.unary` until the
+      operand evaluates to a ground value, then lowers to the concrete validator
+      (`boundConstraint`/`notPrim`/`stringRegex`); a LITERAL operand is lowered at parse time and
+      never reaches this node. -/
+  | boundOp (kind : BoundKind)
+  | neOp
+  | regexMatchOp
 deriving Repr, BEq, DecidableEq
 
 inductive BinaryOp where
@@ -841,12 +918,15 @@ inductive Value where
   | kind (kind : Kind)
   | notPrim (value : Prim)
   | stringRegex (pattern : String)
-  /-- A numeric bound constraint (`>=n`, `>n`, `<=n`, `<n`). `kind` selects the comparator,
-      `bound` is an exact decimal limit (so `>0.5` is representable), and `domain` is the
-      numeric domain it admits: a bare bound is `number` (admits both int and float, e.g.
-      `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the matching kind
-      (`int & >0` rejects floats). -/
-  | boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)
+  /-- A comparator bound constraint (`>=x`, `>x`, `<=x`, `<x`) over ANY ordered type. `kind`
+      selects the comparator; `bound` is the ordered ground operand — a number (exact decimal,
+      so `>0.5` is representable), a string (lexical, by code point), or bytes (by byte order).
+      `domain` applies ONLY to a numeric bound: a bare numeric bound is `number` (admits both
+      int and float, e.g. `>0 & 1.5` ⇒ `1.5`), narrowed to `int`/`float` by meeting with the
+      matching kind (`int & >0` rejects floats). For a string/bytes bound `domain` is an inert
+      `number` sentinel — the admitted kind is fixed by the operand's own kind (only strings
+      compare to a string bound), so the meet keys off `bound`, not `domain`. -/
+  | boundConstraint (bound : Prim) (kind : BoundKind) (domain : NumberDomain)
   /-- A length validator over a measurable quantity (`kind`): struct regular-field count
       (`struct.MinFields`/`MaxFields`), list element count (`list.MinItems`/`MaxItems`), or
       string rune-length (`strings.MinRunes`/`MaxRunes`). `min` is satisfied iff `count >= limit`,

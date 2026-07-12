@@ -272,8 +272,8 @@ theorem eval_mul_incomplete_partner_list_defers :
 
 -- A bound-constraint operand is incomplete → arithmetic defers (it may concretize to a number).
 theorem eval_add_bound_operand_defers :
-    evalAdd (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1))
-      = .binary .add (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int 1)) := by
+    evalAdd (.boundConstraint (.int 0) .gt .number) (.prim (.int 1))
+      = .binary .add (.boundConstraint (.int 0) .gt .number) (.prim (.int 1)) := by
   rfl
 
 -- An unresolved ref operand is incomplete → defers (the pre-fix baseline, must stay).
@@ -479,10 +479,52 @@ theorem eval_regex_match_non_string_is_bottom :
     (evalBinary .regexMatch (.prim (.int 1)) (.prim (.int 2)) == .bottom) = true := by
   native_decide
 
+-- ### Deferred relational-operator lowering (PATTERN-BOUND-OPERAND facet 2)
+--
+-- A comparator/`!=`/`=~` whose operand was NOT a literal parses to a `.unary` node; once the
+-- operand evaluates to a ground value, `evalUnary` lowers it to the concrete validator. These
+-- pin the lowering directly (the wild fixtures pin it end-to-end through a reference).
+
+-- `>k` with `k` resolved to a string lowers to a string bound constraint.
+theorem eval_bound_op_lowers_string_operand :
+    (evalUnary (.boundOp .gt) (.prim (.string "m")) == .boundConstraint (.string "m") .gt .number) = true := by
+  native_decide
+
+-- `<k` with `k` resolved to a number lowers to a numeric bound constraint.
+theorem eval_bound_op_lowers_numeric_operand :
+    (evalUnary (.boundOp .lt) (.prim (.int 5)) == .boundConstraint (.int 5) .lt .number) = true := by
+  native_decide
+
+-- `!=z` with `z` resolved to a prim lowers to a `notPrim` validator.
+theorem eval_ne_op_lowers_operand :
+    (evalUnary .neOp (.prim (.string "a")) == .notPrim (.string "a")) = true := by
+  native_decide
+
+-- `=~re` with `re` resolved to a string lowers to a `stringRegex` validator.
+theorem eval_regex_op_lowers_string_operand :
+    (evalUnary .regexMatchOp (.prim (.string "^a")) == .stringRegex "^a") = true := by
+  native_decide
+
+-- An UNRESOLVED operand keeps the deferred `.unary` node (incomplete, not lowered).
+theorem eval_bound_op_defers_unresolved_operand :
+    (evalUnary (.boundOp .lt) (.refId ⟨0, 0⟩) == .unary (.boundOp .lt) (.refId ⟨0, 0⟩)) = true := by
+  native_decide
+
+-- A NON-ORDERED operand (`>true`) is an invalid bound operand → ⊥.
+theorem eval_bound_op_non_ordered_operand_bottoms :
+    (evalUnary (.boundOp .gt) (.prim (.bool true)) == .bottom) = true := by
+  native_decide
+
+-- `=~` over a non-string operand is invalid → ⊥.
+theorem eval_regex_op_non_string_operand_bottoms :
+    (evalUnary .regexMatchOp (.prim (.int 1)) == .bottom) = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section; a swallowed
 -- section turns its anchor into an unknown identifier and `#check` fails to elaborate.
 #check @eval_div_repeating_leading_zeros                     -- float mul/div/add-sub
 #check @eval_add_ref_operand_defers                          -- arithmetic operator domain
 #check @eval_regex_match_non_string_is_bottom                -- comparison / boolean / unary op pins
+#check @eval_regex_op_non_string_operand_bottoms             -- deferred relational-operator lowering
 
 end Kue

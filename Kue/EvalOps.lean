@@ -330,16 +330,6 @@ def evalNe (left right : Value) : Value :=
   | .binary .eq left right => .binary .ne left right
   | value => value
 
-def charsLt : List Char -> List Char -> Bool
-  | [], [] => false
-  | [], _ :: _ => true
-  | _ :: _, [] => false
-  | left :: leftRest, right :: rightRest =>
-      if left.toNat == right.toNat then
-        charsLt leftRest rightRest
-      else
-        left.toNat < right.toNat
-
 def stringsLt (left right : String) : Bool :=
   charsLt left.toList right.toList
 
@@ -480,11 +470,48 @@ def evalNumNeg (value : Value) : Value :=
   | .bottomReasons reasons => .bottomWith reasons
   | .defer => .unary .numNeg value
 
+/-- Lower a comparator (`< <= > >=`) applied to a now-evaluated operand into a bound
+    constraint. A ground ORDERED prim (number/string/bytes) becomes a `boundConstraint`; a
+    non-ordered prim (`null`/`bool`) is an invalid bound operand (⊥); an incomplete operand
+    stays the deferred `.unary` node. Bare bounds are `number`-domain, matching the parser. -/
+def evalBoundOp (kind : BoundKind) (value : Value) : Value :=
+  match classifyScalarOperand value with
+  | .prim (.int v) => .boundConstraint (.int v) kind .number
+  | .prim (.float v text) => .boundConstraint (.float v text) kind .number
+  | .prim (.string v) => .boundConstraint (.string v) kind .number
+  | .prim (.bytes v) => .boundConstraint (.bytes v) kind .number
+  | .prim (.null) => .bottom
+  | .prim (.bool _) => .bottom
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary (.boundOp kind) value
+
+/-- Lower `!=` applied to a now-evaluated operand into a `notPrim` validator. -/
+def evalNeOp (value : Value) : Value :=
+  match classifyScalarOperand value with
+  | .prim prim => .notPrim prim
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary .neOp value
+
+/-- Lower `=~` applied to a now-evaluated operand into a `stringRegex` validator; a non-string
+    operand is invalid (⊥). -/
+def evalRegexMatchOp (value : Value) : Value :=
+  match classifyScalarOperand value with
+  | .prim (.string pattern) => .stringRegex pattern
+  | .prim _ => .bottom
+  | .bottom => .bottom
+  | .bottomReasons reasons => .bottomWith reasons
+  | .defer => .unary .regexMatchOp value
+
 def evalUnary (op : UnaryOp) (value : Value) : Value :=
   match op with
   | .boolNot => evalBoolNot value
   | .numPos => evalNumPos value
   | .numNeg => evalNumNeg value
+  | .boundOp kind => evalBoundOp kind value
+  | .neOp => evalNeOp value
+  | .regexMatchOp => evalRegexMatchOp value
 
 def evalBinary (op : BinaryOp) (left right : Value) : Value :=
   match op with

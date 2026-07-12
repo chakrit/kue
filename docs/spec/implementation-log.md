@@ -20648,3 +20648,68 @@ Guards added:
 Plan updated (PATTERN-BOUND-REF-OPERAND entry gains the literal-operand facet + the measured-
 surface record). `check.sh` GREEN. No product-code change (probe + guards + red seed).
 Committed on `main`.
+
+---
+
+## Completed Slice: PATTERN-BOUND-OPERAND — comparator bounds over any ordered type
+
+Goal: graduate the two red seeds `pattern-bound-{string,reference}-operand` by generalizing
+comparator bound constraints (`< <= > >= != =~`) from numeric-literal-only operands to ANY
+ordered type and to non-literal (reference/expression) operands. cue v0.16.1 is spec-correct
+here; kue was over-restrictive (rejected valid CUE).
+
+Root cause: `parseBoundValue` accepted only numeric literals, and
+`boundConstraint (bound : DecimalValue) …` was numeric-only by construction.
+
+### Representation
+
+- `boundConstraint`'s operand generalized `DecimalValue → Prim` (arity unchanged, so the ~30
+  wildcard `.boundConstraint _ _ _` match sites needed no edit). The operand is the ordered
+  ground value: `.int`/`.float` (numeric), `.string` (lexical), `.bytes` (byte order).
+- One total comparison entry point `Kue.primOrdCompare? : Prim → Prim → Option Ordering`
+  (numbers by exact decimal, strings by code point via `charsLt`, bytes by `bytesLt`; `none`
+  for a cross-family/non-ordered pair). `BoundKind.admitsPrim?` builds the per-comparator
+  predicate on it. `charsLt` moved from `EvalOps` to `Value` (deduped; `bytesLt` added there).
+- `domain : NumberDomain` applies ONLY to numeric bounds (the bare-`>0`-admits-float rule);
+  for a string/bytes bound it is an inert `number` sentinel and the admitted family is fixed
+  by the operand's own kind. Helpers `boundKindLabel`/`boundAdmitsKind` (in `Value`) centralize
+  "the family this bound belongs to / admits".
+- **Facet 2 (non-literal operands):** `UnaryOp` gained `boundOp (kind)`, `neOp`, `regexMatchOp`
+  (per CUE grammar `unary_op = … | rel_op`). The parser (`parseBoundOperand`, `=~`/`!=` arms)
+  lowers a LITERAL operand immediately (parse output for `<5`/`<"m"` is still a
+  `boundConstraint`), and emits a deferred `.unary … operand` for a reference/call. `evalUnary`
+  (`evalBoundOp`/`evalNeOp`/`evalRegexMatchOp`) lowers the deferred node to the concrete
+  validator (`boundConstraint`/`notPrim`/`stringRegex`) once the operand is a ground value;
+  incomplete operands keep the deferred node; a non-ordered operand (`>true`) is ⊥.
+
+### Meet/order/format changes
+
+- `Lattice`: `meetBoundPrim`/`meetRangePrim`/`tightenSameSide`/`rangeFeasible`/`meetTwoBounds`/
+  `meetKindWithBound`/`conjMemberLe`/join all route through `primOrdCompare?`. String/bytes
+  bounds conjoin with a regex/notPrim/stringFormat of the same family; a numeric/bytes bound
+  vs a string constraint conflicts. `minDecimal`/`maxDecimal` removed (join uses `primOrdCompare?`).
+- `Order`: `boundSubsumesBound` + the bound-vs-prim subsumption arm generalized.
+- `Format`: `formatBoundOperand` renders a numeric limit as a trimmed finite decimal
+  (`>0`, `>0.5`), a string/bytes limit as its quoted literal (`<"m"`, `>='m'`);
+  `formatUnaryOp` gained the rel-op arms. Dead `formatBoundLimit` removed.
+
+### Behavior pinned (byte-parity with cue v0.16.1, manual sweep)
+
+`<"m" & "apple"` → `"apple"`; `>="m" & "m"` → `"m"`; `string & <"m"` → `<"m"`; `>"a" & >"m"`
+→ `>"m"`; `bytes & <'m'` → `<'m'`; `=~"^a" & <"m"` and `<"m" & !="a"` conjoin; `>k & "zebra"`
+(k="m") → `"zebra"`; `{[=~_re]: int}` filters by the resolved regex. `int & <"m"` / `>5 & >"m"`
+→ ⊥ (verdict matches; kue renders the terser `_|_`, its universal conflict form). Numeric
+bounds unchanged (`>0 & 1.5` → `1.5`, `>=0.5 & 1.0` → `1.0`).
+
+### Guards
+
+- Both red seeds `testdata/wild/pattern-bound-{string,reference}-operand/` GRADUATED
+  (`.known-red` removed; now enforced by `check-fixtures.sh`).
+- `Kue/Tests/BoundTests.lean` — ordered-type-bounds section (string admit/reject both
+  directions, bytes, inclusive boundary, same-side tighten, notPrim retention, regex conjoin,
+  redundant-kind drop, type-mismatch ⊥, cross-family ⊥, string/bytes format, numeric regression).
+- `Kue/Tests/EvalOpsTests.lean` — deferred relational-operator lowering section (bound/ne/regex
+  lowering, unresolved-defer, non-ordered ⊥, non-string-regex ⊥).
+
+`./scripts/check.sh` GREEN. NOT a cue-divergence (cue was spec-correct); no `cue-divergences.md`
+entry. Committed on `main`.

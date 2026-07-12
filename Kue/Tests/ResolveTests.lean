@@ -43,8 +43,8 @@ theorem eval_resolved_reference_inside_list :
 
 theorem resolve_reference_inside_conjunction :
     (resolveStructRefs
-      (mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .conj [.ref "#A", .boundConstraint (intDecimal 0) .ge .number], false⟩] .regularOpen none [])
-      == mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .conj [.refId ⟨0, 0⟩, .boundConstraint (intDecimal 0) .ge .number], false⟩] .regularOpen none []) = true := by
+      (mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .conj [.ref "#A", .boundConstraint (.int 0) .ge .number], false⟩] .regularOpen none [])
+      == mkStruct [⟨"#A", .definition, .kind .int, false⟩, ⟨"x", .regular, .conj [.refId ⟨0, 0⟩, .boundConstraint (.int 0) .ge .number], false⟩] .regularOpen none []) = true := by
   native_decide
 
 theorem resolve_reference_inside_disjunction :

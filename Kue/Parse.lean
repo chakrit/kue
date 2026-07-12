@@ -654,14 +654,6 @@ def parseNumberValue (chars : List Char) : ParseResult Value :=
         | some value => parseOk (.prim (.int value)) rest
         | none => parseError chars s!"invalid integer literal {token}"
 
-def parseBoundValue (kind : BoundKind) (chars : List Char) : ParseResult Value :=
-  match parseNumberToken (skipTrivia chars) with
-  | .error error => .error error
-  | .ok (token, rest) =>
-      match parseDecimalText token with
-      | some value => parseOk (.boundConstraint value kind .number) rest
-      | none => parseError chars "numeric bound requires a numeric literal"
-
 def parseCommaOrSemicolon : List Char -> List Char
   | ',' :: rest => skipTrivia rest
   | ';' :: rest => skipTrivia rest
@@ -1438,6 +1430,21 @@ mutual
                 parseSelectorRest (.builtinCall "slice" [base, low, high]) rest
             | rest => parseError rest "expected ']' after slice bounds"
 
+  /-- Parse a comparator-bound operand (`rel_op UnaryExpr`). A LITERAL ordered operand
+      (number/string/bytes) lowers to a `boundConstraint` now; any other operand (a reference,
+      call, or non-ordered literal) defers to a `.unary (.boundOp kind)` node the evaluator
+      lowers once the operand is a ground value. Bare bounds are `number`-domain. -/
+  partial def parseBoundOperand (kind : BoundKind) (chars : List Char) : ParseResult Value :=
+    match parsePrimary (skipTrivia chars) with
+    | .error error => .error error
+    | .ok (operand, rest) =>
+        match operand with
+        | .prim (.int v) => parseOk (.boundConstraint (.int v) kind .number) rest
+        | .prim (.float v text) => parseOk (.boundConstraint (.float v text) kind .number) rest
+        | .prim (.string v) => parseOk (.boundConstraint (.string v) kind .number) rest
+        | .prim (.bytes v) => parseOk (.boundConstraint (.bytes v) kind .number) rest
+        | _ => parseOk (.unary (.boundOp kind) operand) rest
+
   partial def parsePrimaryAtom (chars : List Char) : ParseResult Value :=
     match skipTrivia chars with
     | '(' :: rest =>
@@ -1469,16 +1476,24 @@ mutual
         | .error error => .error error
         | .ok (value, rest) =>
             match value with
+            -- A literal operand resolves now (`!="m"`); a reference/expression operand defers
+            -- to the evaluator, which lowers it once the operand is a ground value.
             | .prim prim => parseOk (.notPrim prim) rest
-            | _ => parseError rest "!= currently requires a primitive literal"
+            | _ => parseOk (.unary .neOp value) rest
     | '=' :: '~' :: rest =>
-        match parseQuotedString (skipTrivia rest) with
-        | .error error => .error error
-        | .ok (pattern, rest) => parseOk (.stringRegex pattern) rest
-    | '>' :: '=' :: rest => parseBoundValue .ge rest
-    | '>' :: rest => parseBoundValue .gt rest
-    | '<' :: '=' :: rest => parseBoundValue .le rest
-    | '<' :: rest => parseBoundValue .lt rest
+        match skipTrivia rest with
+        | '"' :: _ =>
+            match parseQuotedString (skipTrivia rest) with
+            | .error error => .error error
+            | .ok (pattern, rest) => parseOk (.stringRegex pattern) rest
+        | _ =>
+            match parsePrimary (skipTrivia rest) with
+            | .error error => .error error
+            | .ok (operand, rest) => parseOk (.unary .regexMatchOp operand) rest
+    | '>' :: '=' :: rest => parseBoundOperand .ge rest
+    | '>' :: rest => parseBoundOperand .gt rest
+    | '<' :: '=' :: rest => parseBoundOperand .le rest
+    | '<' :: rest => parseBoundOperand .lt rest
     | '+' :: _ => parseNumberValue (skipTrivia chars)
     | '-' :: _ => parseNumberValue (skipTrivia chars)
     | value :: rest =>

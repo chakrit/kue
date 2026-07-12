@@ -80,6 +80,14 @@ def formatPrim : Prim -> String
   | .string value => s!"\"{escapeCueStringContent value}\""
   | .bytes value => formatBytesLiteral value
 
+/-- Render a bound's ordered operand as CUE prints it after the comparator. A numeric limit
+    prints as a trimmed finite decimal (`>0`, `>0.5`, never force-floated to `>0.0`); a
+    string/bytes limit prints as its quoted literal (`<"m"`, `<'m'`). -/
+def formatBoundOperand : Prim -> String
+  | .int value => toString value
+  | .float value _ => formatFiniteDecimal value false
+  | prim => formatPrim prim
+
 def joinWith (separator : String) : List String -> String
   | [] => ""
   | [value] => value
@@ -89,6 +97,9 @@ def formatUnaryOp : UnaryOp -> String
   | .boolNot => "!"
   | .numPos => "+"
   | .numNeg => "-"
+  | .boundOp kind => kind.symbol
+  | .neOp => "!="
+  | .regexMatchOp => "=~"
 
 def formatBinaryOp : BinaryOp -> String
   | .add => "+"
@@ -164,7 +175,7 @@ mutual
     | _, .kind kind => formatKind kind
     | _, .notPrim prim => "!=" ++ formatPrim prim
     | _, .stringRegex pattern => s!"=~\"{escapeCueStringContent pattern}\""
-    | _, .boundConstraint bound kind _ => kind.symbol ++ formatBoundLimit bound
+    | _, .boundConstraint bound kind _ => kind.symbol ++ formatBoundOperand bound
     | _, .lengthConstraint kind bound limit =>
         let call := match kind, bound with
           | .fields, .min => "struct.MinFields"

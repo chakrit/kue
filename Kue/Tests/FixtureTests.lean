@@ -234,7 +234,7 @@ theorem fixture_builtin_reference_eval :
 theorem fixture_and_or_builtin :
     formatTopLevel
       (mkStruct [
-          ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (intDecimal 0) .gt .number, .prim (.int 7)], false⟩,
+          ⟨"andValue", .regular, andValues [.kind .int, .boundConstraint (.int 0) .gt .number, .prim (.int 7)], false⟩,
           ⟨"orValue", .regular, orValues [.prim (.string "a"), .prim (.string "b")], false⟩
         ] .regularOpen none [])
       = "andValue: 7\norValue: \"a\" | \"b\"" := by
@@ -967,7 +967,7 @@ theorem uniqueitems_format :
 -- `>0`==`>0`, `string`==`string`) are NOT a definite duplicate — they can refine to distinct
 -- concretes (`[int,int] & [1,2]`) — so UniqueItems RETAINS the residual rather than eager-bottoming.
 private def intListII : Value := .list [.kind .int, .kind .int]
-private def gtZero : Value := .boundConstraint (intDecimal 0) .gt .number
+private def gtZero : Value := .boundConstraint (.int 0) .gt .number
 theorem uniqueitems_abstract_int_retains :
     (meet intListII .uniqueItems == .conj [intListII, .uniqueItems]) = true := by native_decide
 theorem uniqueitems_abstract_bound_retains :
@@ -1002,7 +1002,7 @@ theorem uniqueitems_listtail_finalize_bottoms :
 theorem fixture_int_bounds :
     formatField "x"
       (meet
-        (meet (.boundConstraint (intDecimal 0) .ge .number) (.boundConstraint (intDecimal 10) .le .number))
+        (meet (.boundConstraint (.int 0) .ge .number) (.boundConstraint (.int 10) .le .number))
         (.prim (.int 7)))
       = "x: 7" := by
   native_decide
@@ -1010,13 +1010,13 @@ theorem fixture_int_bounds :
 theorem fixture_strict_int_bounds :
     formatField "x"
       (meet
-        (meet (.boundConstraint (intDecimal 0) .gt .number) (.boundConstraint (intDecimal 10) .lt .number))
+        (meet (.boundConstraint (.int 0) .gt .number) (.boundConstraint (.int 10) .lt .number))
         (.prim (.int 7)))
       = "x: 7" := by
   native_decide
 
 theorem fixture_int_bound_disjunction :
-    formatField "x" (join (.boundConstraint (intDecimal 5) .ge .number) (.boundConstraint (intDecimal 0) .ge .number)) = "x: >=0" := by
+    formatField "x" (join (.boundConstraint (.int 5) .ge .number) (.boundConstraint (.int 0) .ge .number)) = "x: >=0" := by
   native_decide
 
 theorem fixture_primitive_exclusion :
@@ -1040,7 +1040,7 @@ theorem fixture_number_disjunction :
   native_decide
 
 theorem fixture_number_int_bound :
-    formatField "x" (meet (meet (.kind .number) (.boundConstraint (intDecimal 0) .ge .number)) (.prim (.int 7))) = "x: 7" := by
+    formatField "x" (meet (meet (.kind .number) (.boundConstraint (.int 0) .ge .number)) (.prim (.int 7))) = "x: 7" := by
   native_decide
 
 theorem fixture_open_list_tail :
@@ -1142,8 +1142,8 @@ theorem fixture_constrained_reference_cycle :
     formatTopLevel
       (resolveAndEval
         (mkStruct [
-            ⟨"x", .regular, .conj [.ref "x", .boundConstraint (intDecimal 0) .ge .number], false⟩,
-            ⟨"a", .regular, .conj [.ref "b", .boundConstraint (intDecimal 0) .ge .number], false⟩,
+            ⟨"x", .regular, .conj [.ref "x", .boundConstraint (.int 0) .ge .number], false⟩,
+            ⟨"a", .regular, .conj [.ref "b", .boundConstraint (.int 0) .ge .number], false⟩,
             ⟨"b", .regular, .ref "a", false⟩
           ] .regularOpen none []))
       = "x: >=0\na: >=0\nb: >=0" := by

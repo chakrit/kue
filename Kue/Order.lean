@@ -26,11 +26,13 @@ def kindSubsumesKind (expected actual : Kind) : Bool :=
     pre-fold arms: a looser lower bound (smaller limit) subsumes a tighter one; a looser
     upper bound (larger limit) subsumes a tighter one. Cross-comparator pairs are not
     subsumption-related (`false`). -/
-def boundSubsumesBound (expectedBound : DecimalValue) (expectedKind : BoundKind)
-    (actualBound : DecimalValue) (actualKind : BoundKind) : Bool :=
+def boundSubsumesBound (expectedBound : Prim) (expectedKind : BoundKind)
+    (actualBound : Prim) (actualKind : BoundKind) : Bool :=
   if expectedKind != actualKind then false
-  else if expectedKind.lower then decimalLeValues expectedBound actualBound
-  else decimalLeValues actualBound expectedBound
+  else
+    match primOrdCompare? expectedBound actualBound with
+    | none => false
+    | some ord => if expectedKind.lower then ord != .gt else ord != .lt
 
 mutual
   def fieldSubsumesWithFuel (fuel : Nat) (expected actual : Field) : Bool :=
@@ -237,11 +239,12 @@ mutual
     | _ + 1, .kind expectedKind, .stringFormat _ => kindSubsumesKind expectedKind .string
     | _ + 1, .stringFormat fmt, .prim (.string value) => stringFormatValid fmt value
     | _ + 1, .stringFormat expectedFmt, .stringFormat actualFmt => expectedFmt == actualFmt
-    | _ + 1, .kind expectedKind, .boundConstraint _ _ domain => kindSubsumesKind expectedKind domain.kind
+    | _ + 1, .kind expectedKind, .boundConstraint bound _ domain =>
+        kindSubsumesKind expectedKind (boundKindLabel bound domain)
     | _ + 1, .boundConstraint bound kind domain, .prim prim =>
-        domain.admitsKind (Prim.kind prim)
-          && (match decimalFromPrim? prim with
-              | some value => kind.admits bound value
+        boundAdmitsKind bound domain (Prim.kind prim)
+          && (match kind.admitsPrim? bound prim with
+              | some result => result
               | none => false)
     | _ + 1, .boundConstraint expectedBound expectedKind _, .boundConstraint actualBound actualKind _ =>
         boundSubsumesBound expectedBound expectedKind actualBound actualKind

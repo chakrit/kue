@@ -70,9 +70,9 @@ theorem float_beq_reduces_to_text_equality :
 -- Float behavior pinned: a `>=1.5` bound admits `1.5` (inclusive) and a `>1.5` bound
 -- rejects it (strict) — the bound/decimal edge surface 0e's core-type change threads through.
 theorem float_pinned_across_contexts :
-    meet (.boundConstraint { numerator := 15, scale := 1 } .ge .number) (.prim (mkFloatText "1.5"))
+    meet (.boundConstraint (mkFloatText "1.5") .ge .number) (.prim (mkFloatText "1.5"))
         = .prim (mkFloatText "1.5")
-      ∧ meet (.boundConstraint { numerator := 15, scale := 1 } .gt .number) (.prim (mkFloatText "1.5"))
+      ∧ meet (.boundConstraint (mkFloatText "1.5") .gt .number) (.prim (mkFloatText "1.5"))
         = .bottomWith [.boundConflict] := by
   exact ⟨rfl, rfl⟩
 

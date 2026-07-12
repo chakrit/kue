@@ -106,11 +106,11 @@ theorem lattice_join_kind_subsumes_regex :
 -- join-with-kind absorption here so the algebra has a `join` bound pin.
 
 theorem lattice_meet_bound_with_satisfying_scalar :
-    meet (.boundConstraint (intDecimal 0) .ge .number) (.prim (.int 1)) = .prim (.int 1) := by
+    meet (.boundConstraint (.int 0) .ge .number) (.prim (.int 1)) = .prim (.int 1) := by
   rfl
 
 theorem lattice_meet_bound_with_violating_scalar :
-    meet (.boundConstraint (intDecimal 0) .gt .number) (.prim (.int (-1)))
+    meet (.boundConstraint (.int 0) .gt .number) (.prim (.int (-1)))
       = .bottomWith [.boundConflict] := by
   rfl
 

@@ -3,7 +3,30 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **CORE-CONFORMANCE-PROBE — pattern-constraint core surface MEASURED (LANDED 2026-07-12).**
+HEAD: **PATTERN-BOUND-OPERAND — comparator bounds over any ordered type (LANDED 2026-07-12).**
+Comparator bounds (`< <= > >= != =~`) now apply to ANY ordered type and to non-literal operands;
+BOTH red seeds `pattern-bound-{string,reference}-operand` GRADUATED. `boundConstraint`'s operand
+generalized `DecimalValue → Prim` (arity unchanged → ~30 wildcard match sites untouched); one total
+`primOrdCompare?` (+ `BoundKind.admitsPrim?`) drives every bound comparison — numeric decimal, string
+lexical by code point (`charsLt`), bytes by byte order (`bytesLt`). `domain` is numeric-only now (inert
+`number` sentinel for string/bytes; family fixed by operand kind via `boundKindLabel`/`boundAdmitsKind`).
+**Facet 2:** `UnaryOp` gained `boundOp`/`neOp`/`regexMatchOp`; parser lowers a literal operand
+immediately, emits a deferred `.unary … operand` for a reference/call (`>k`, `{[=~_re]:int}`, `<len(x)`),
+which `evalUnary` lowers to the concrete validator once ground (per CUE grammar `unary_op = … | rel_op`).
+Byte-parity with cue v0.16.1: `<"m" & "apple"`→`"apple"`, `string & <"m"`→`<"m"`, `>"a" & >"m"`→`>"m"`,
+`bytes & <'m'`→`<'m'`, `=~"^a" & <"m"`/`<"m" & !="a"` conjoin, `>k & "zebra"`→`"zebra"`; `int & <"m"` /
+`>5 & >"m"`→⊥ (kue's terser `_|_`). Numeric bounds unchanged. Theorems: `BoundTests` ordered-type section
++ `EvalOpsTests` deferred-lowering section. NOT a cue-divergence (cue was spec-correct). Docs: plan.md
+(✅ LANDED, both facets), compat-assumptions.md (bound repr rewritten), implementation-log. `check.sh`
+GREEN, committed on `main`.
+**Next (ranked):** remaining core-conformance probes — **structural cycles** (spot-check Bug2x for
+cycle-through-comprehension / disjunction-guarded cycles), **scoping/reference-resolution** (shadowing
+across `let`/field/comprehension-var/alias, hidden-field scope); then float follow-ups **F1**
+(`math.Log1p`/`Expm1`) → **F3** (trig) → **F5** (`text/template` float render + `math.Float64bits`); then
+LOWs PA-ESC-2 / PA-SUB-4 / PA-TT-5 / PB-RELEASE-3 / PB-TESTORG-4.
+Prior HEAD CORE-CONFORMANCE-PROBE below.
+
+## Prior HEAD — CORE-CONFORMANCE-PROBE — pattern-constraint core surface MEASURED (LANDED 2026-07-12).
 Bounded differential hunt (~30 cases) over pattern constraints (`[pattern]: constraint`), the
 least-recently-probed flagged core area (structural cycles are heavily covered by `Bug2xTests`;
 closedness/comprehensions probed 2026-07-04). **Surface is CONFORMING** — regex label filtering,

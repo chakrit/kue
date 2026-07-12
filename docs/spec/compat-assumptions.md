@@ -445,21 +445,26 @@ those forms.
   precedence as equality. The evaluator currently handles concrete numeric and string
   operands. Mixed-kind ordering bottoms out; ordering over bytes, incomplete values, and
   compound values remains later work.
-- **Numeric bounds are decimal-valued and domain-tagged (`>0` is a number bound — matches
-  CUE).** Kue parses `>n` /`>=n`/`<n`/`<=n` into a single
-  `boundConstraint (bound : DecimalValue) (kind : BoundKind) (domain : NumberDomain)`
-  (decimal limit + domain tag since 2026-06-17 item **2b**; the 2a fold landed the single
-  ctor with an `Int` limit and no domain, deliberately one field short). The limit is an
-  exact base-10 rational (`Kue.DecimalValue`, reused from the decimal arithmetic layer),
-  so decimal bound literals **parse** (`>0.5`, `>-1.5`, `<3.14`) and the comparator
-  (`BoundKind.admits`) compares via `decimalLeValues` /`decimalLtValues` — no float
-  rounding. `NumberDomain = number | int | float` (a proper sum, not a flag) tags which
-  numeric kinds a bound admits: a **bare** bound is `number` -domain and admits **both int
-  and float**, matching cue (`>0 & 1.5` → `1.5`, `>0.5 & 1.0` → `1.0`, `>=0 & <=10 & 5.5`
-  → `5.5`). The prior over-strict divergence (kue `>0 & 1.5` → `_|_`) is **closed**. A
-  bound's `domain` is narrowed to `int` /`float` only conceptually — see the kind-meet
-  rule below; in practice a parsed bound is always `number` -domain and the kind conjunct
-  does the narrowing.
+- **Comparator bounds apply to any ordered type (`>0`, `<"m"`, `>='a'` — matches CUE).**
+  Kue parses `>x` /`>=x`/`<x`/`<=x` into a single
+  `boundConstraint (bound : Prim) (kind : BoundKind) (domain : NumberDomain)`
+  (PATTERN-BOUND-OPERAND, 2026-07-12, generalized from the numeric-only
+  `bound : DecimalValue` of 2026-06-17 item **2b**). The `bound` operand is the ordered
+  ground value — a number (compared via `decimalLeValues` /`decimalLtValues`, no float
+  rounding, so `>0.5` parses and admits `1.0`), a string (lexical by code point,
+  `<"m" & "apple"` → `"apple"`), or bytes (by byte order). One total comparison entry point
+  `Kue.primOrdCompare?` drives every bound comparison; `BoundKind.admitsPrim?` builds the
+  per-comparator predicate on it. `NumberDomain = number | int | float` applies ONLY to a
+  numeric bound: a **bare** numeric bound is `number` -domain and admits **both int and
+  float** (`>0 & 1.5` → `1.5`, `>0.5 & 1.0` → `1.0`, `>=0 & <=10 & 5.5` → `5.5`; the prior
+  over-strict `>0 & 1.5` → `_|_` divergence stays **closed**), narrowed to `int` /`float`
+  only via the kind conjunct (rule below). For a string/bytes bound `domain` is an inert
+  `number` sentinel — the admitted family is fixed by the operand's own kind (`string & <"m"`
+  drops the redundant `string`; `int & <"m"` conflicts; `>5 & >"m"` conflicts). A comparator
+  whose operand is NOT a literal at parse time (a reference/call: `>k`, `{[=~_re]: int}`,
+  `<len(x)`) parses to a deferred `.unary (.boundOp/.neOp/.regexMatchOp) operand` node — per
+  CUE grammar `unary_op = … | rel_op` — which the evaluator lowers to the concrete validator
+  (`boundConstraint`/`notPrim`/`stringRegex`) once the operand evaluates to a ground value.
 - **A numeric kind meeting a bound retains the kind as a conjunction (`int & >0`,
   `float & >0`).** Meeting a numeric kind with a bound (`meetKindWithBound`): `int`
   /`float` are retained as a conjunct (`int & >0` → `.conj [kind int, >0]`, formatting
