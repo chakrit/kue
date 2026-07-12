@@ -216,41 +216,52 @@ arms stay OUT (force-fold / can-produce-a-struct) — bug214b untouched. Wild
 `def-closedness-disj-excluded-arm-{bound,list}` (RED→GREEN); `Bug2xTests` `defflatten_{boundarm,listarm,
 kindarm}_*` + multidisj + open-tail-sibling both-direction guards. Full cue v0.16.1 mixed-arm truth table
 in the implementation-log.
-> RESIDUAL (filed below): the DIRECT `error(...)` arm case still leaks — DISJ-CLOSEDNESS-ERROR-ARM-LEAK.
+> RESOLVED (2026-07-13, DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL): the DIRECT `error(...)` arm leak closed —
+> DISJ-CLOSEDNESS-ERROR-ARM-LEAK ✅ LANDED (below).
 
-**DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 DISJ-CLOSEDNESS-
-EXCLUDED-ARM-LEAK). OPEN.** The direct `error(...)` disjunction arm is BLOCKING (needs force-fold, kept out of
-the distribute-safe whitelist), so a def unifying it stays OPEN and leaks: `#X: {a:1} & ({z:9} | error("x"))`
-· `#X & {w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥ (force-folds the `error`, message `x`). Verified PRE-EXISTING
-(predates the EXCLUDED-ARM fix; `git stash` reproduced the leak before the whitelist change). Distinct from
-DISJ-NESTED-ERROR-ARM-AMBIGUOUS (below, LOW — errors both ways, no leak): this is a genuine OVER-ACCEPT.
-Fix must distribute an error arm as an eval-time force-fold (`.conj [literal, error]` bottoms, message may be
-lost but result ⊥ matches) WITHOUT reopening bug214b's `out: {structShape | error("nope")}` force-fold path
-(bug214b's host field is a REGULAR field, so `close=false` — distribution never fires there; verify the
-DEFINITION-with-error-arm path threads the force-fold cleanly). Seed
-`testdata/wild/def-closedness-disj-error-arm/` RED first; both-direction (valid-`z` still `{a,z}`; bug214b
-L-series untouched).
+**DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL (the durable CLASS fix; 2026-07-13). ✅ LANDED.** The hand-enumerated
+`isDistributableDisjArm` whitelist MISSED the "bottoms-against-a-struct-literal" arm class TWICE. Replaced it
+with a DERIVED predicate `disjArmClass : Value → DisjArmClass` (`Kue/EvalBase.lean`) — a COMPLETE match over
+every `Value` constructor (no catch-all), so a NEW shape is a COMPILE error, not a silent leak. Four classes,
+DERIVED from how the arm meets the def's non-empty own struct literal `{…}`:
+- `fieldCarryingClosed` (struct / structComp) → union+close;
+- `fieldCarryingOpen` (def-`.refId`) → compose OPEN, the ref governs closedness;
+- `bottomsVsStruct` (scalar/kind/notPrim/regex/format/bound/uniqueItems/list-carriers/lengthConstraint/
+  `error(…)`/`⊥`) → the arm carries NO new allowed field, so the literal closes around it;
+- `blocking` (unevaluated expr of unknown result kind, `_`) → leave the disjunction raw.
+**Emission reframe:** the `bottomsVsStruct` branch now CONJ's the pick against the CLOSED literal
+(`closeLiteralUnion literals`), not the open literal — so a kind-mismatched pick (scalar/list/`error`) bottoms
+the combination AND a *composes-closed* pick (`struct.MinFields`, `_`) rides the CLOSED literal and rejects
+use-site extras. This closes both residuals below by construction. **Call-form validators**
+(`list.MinItems(2)`, `struct.MinFields(2)`) reach the flatten level as UNLOWERED `.builtinCall`s (bare
+validators like `=~`/`time.Duration` pre-resolve, call-forms don't): `disjArmClass` lowers a `.builtinCall`
+through the existing `evalBuiltinCall` and classifies the validator — no hand-list of builtin names.
 
-**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2 (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 Phase A
-audit — the narrower residual of `0707776`). OPEN.** `0707776` widened `isDistributableDisjArm`
-(`Kue/EvalBase.lean`) to `.kind`/`.boundConstraint`/list-carriers, but FOUR MORE arm shapes also bottom
-against a non-empty struct literal and are still EXCLUDED, so a disjunction containing one stays
-non-distributable and the def flattens OPEN → use-site extra leaks. Each verified INTERNALLY CONSISTENT
-(kue's own isolated `{a:1} & arm` meet bottoms), and cue ⊥ (spec-correct — arm mismatches the struct kind):
-- `.stringRegex` (`=~"foo"`): `#X: {a:1} & ({z:9} | =~"foo")` · `#X & {z:9,w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
-- `.stringFormat` (`time.Duration`): same shape ⇒ kue `{a,z,w}` (leak), cue ⊥ (struct vs string).
-- `.uniqueItems` (validator arm `list.UniqueItems`): same ⇒ kue leaks, cue ⊥ (struct vs list).
-- `.notPrim` (`!=5`): same ⇒ kue leaks, cue ⊥; kue's isolated `{a:1} & !=5` bottoms (number-kinded).
-- `.lengthConstraint` PARTIAL — kind-discriminated: `.listItems`/`.runes` (`list.MinItems`,`strings.MinRunes`)
-  bottom vs a struct → leak; but `.fields` (`struct.MinFields`) COMPOSES with a struct (kue+cue agree `{a:1}`)
-  and MUST stay excluded. Needs `.lengthConstraint k _ _ => k != .fields`, NOT a blanket `=> true`.
-`.top` stays EXCLUDED (`{a:1} & _` = `{a:1}`, does NOT bottom — a distribute-safe `.top` would drop a real
-combination). Fix: add `.stringRegex`/`.stringFormat`/`.uniqueItems`/`.notPrim => true` +
-`.lengthConstraint k _ _ => k != .fields` to the distribute-safe category. Seed
-`testdata/wild/def-closedness-disj-excluded-arm-{regex,format,unique,notprim,minitems}/` RED first;
-both-direction guards (valid `z` still `{a,z}`; a `struct.MinFields` arm stays OPEN-composed, not force-closed).
-Then re-sweep the FULL `Value` constructor set once more against "does this arm bottom vs a non-empty struct
-literal?" — the whitelist has now missed the same class TWICE.
+**DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH soundness — SILENT closedness leak). ✅ LANDED (2026-07-13,
+DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL).** `#X: {a:1} & ({z:9} | error("x"))` · `#X & {w:7}` ⇒ was kue
+**`{a,z,w}`** (leak), cue ⊥. **The bug214b tension DISSOLVED by layer separation, not force-fixed:** closedness
+distribution fires ONLY for DEFINITION fields (`field.fieldClass.isDefinition` gates `close`); bug214b's
+`structShape | error("nope")` lives under a REGULAR field (`close=false`), so the distribution NEVER touches it
+and the disjunction still force-folds at normal eval. In the DEFINITION context the `error` arm is now
+`bottomsVsStruct` (`{a:1} & error(…)` force-folds to ⊥), so the def closes `{a,z}` around it. cue surfaces the
+error message `x` (the `{a,z}` arm bottoms on `w`, the `error` arm resurfaces as sole survivor); kue surfaces
+`conflicting values (bottom)` (the closedness rejection) — result ⊥ agrees, only the diagnostic differs
+(message-only, spec-irrelevant). Wild `def-closedness-disj-error-arm/` (RED→GREEN); `Bug2xTests`
+`defflatten_errorarm_{rejects,select_admits}`; bug214b L-series untouched.
+
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2 (HIGH soundness — SILENT closedness leak). ✅ LANDED (2026-07-13,
+DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL).** The four-plus residual arm shapes now close by construction via the
+derived predicate: `.stringRegex`, `.stringFormat`, `.uniqueItems`, `.notPrim`, and `.lengthConstraint` (all
+kinds). **CORRECTION to this entry's own earlier prescription (`k != .fields`):** the filing claimed `.fields`
+(`struct.MinFields`) COMPOSES and MUST stay excluded / OPEN-composed. FALSIFIED by observation —
+`#X: {a:1,b:2} & ({z:9} | struct.MinFields(2))` · `#X & {w:7}` ⇒ kue was `{a,z,w}` (leak), cue ⊥ (`w` not
+allowed): a CLOSED definition rejects the extra REGARDLESS of the validator. So `.fields` IS `bottomsVsStruct`
+— it composes-CLOSED (rides the closed literal, carrying no new field), and the closed-literal emission makes
+it reject extras. No `.fields` special-case survives; the `.lengthConstraint` arm is uniform. `.top` likewise
+folds in structurally (composes-closed to the closed literal) but stays `blocking` here — its bare-`#X`
+disjunction resolution diverges from cue independently and is out of this slice's scope. Wild
+`def-closedness-disj-excluded-arm-{regex,format,unique,notprim,minitems,minfields}/` (RED→GREEN); `Bug2xTests`
+`defflatten_{regexarm,notprimarm,minitemsarm}_rejects` + `defflatten_minfieldsarm_{rejects,select_admits}`.
 
 **LIST-SORT-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value; 5th carrier-miss; NEW, 2026-07-13 Phase A
 audit — the residual `f7f954f`'s re-sweep predicted). OPEN.** `runSort` (`Kue/Eval.lean` ~354) matches ONLY
@@ -347,10 +358,11 @@ nested-disj residuals landed in the follow-up.
 > RETRACTION (2026-07-13 Phase A audit): the "closes the LAST known HIGH silent soundness leak" /
 > "all known soundness leaks now closed" claim (commit `f0ddb19`) is FALSIFIED — the `isDistributableDisj`
 > whitelist was all-or-nothing, so a disjunction with a bound/list arm leaked (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK,
-> ✅ LANDED 2026-07-13 — the whitelist now has a distribute-safe category; bound/list/kind arms close).
-> Still OPEN: the DIRECT `error(...)` arm leaks (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, HIGH).
-> LIST-SLICE-EMBEDDED-CARRIER (the 4th list-carrier miss) ✅ LANDED 2026-07-13. Do NOT re-claim
-> "all soundness leaks closed" — the error-arm leak remains open.
+> ✅ LANDED 2026-07-13). The whitelist was later REPLACED wholesale by the derived `disjArmClass`
+> predicate (DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL, 2026-07-13), closing EXCLUDED-ARM-LEAK-2 and the
+> DIRECT `error(...)` arm leak (DISJ-CLOSEDNESS-ERROR-ARM-LEAK) by construction.
+> LIST-SLICE-EMBEDDED-CARRIER (the 4th list-carrier miss) ✅ LANDED 2026-07-13. The closedness-disjunction
+> distribute leak CLASS is now closed structurally; see the "all soundness leaks closed" milestone note.
 The DEF-FLATTEN-CLOSEDNESS-DISJ fix closed a def's own-literal union across a SINGLE all-struct
 disjunction; the cross-product slice extended the distribution to MULTIPLE closable disjunctions; the
 residual slice extended it to ref/scalar arms (open-compose) and nested disjunctions (flatten-first).

@@ -1406,6 +1406,71 @@ theorem defflatten_boundarm_opentail_sibling_admits :
       "{\n    \"out\": {\n        \"a\": 1,\n        \"p\": 1,\n        \"w\": 7\n    }\n}\n" = true := by
   native_decide
 
+-- REGEX ARM (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2, reject): a string-regex arm (`=~"foo"`) is
+-- string-kinded and dies against the def's struct literal, so it is distribute-safe; the `{z:9}` arm
+-- closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_regexarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | =~\"foo\")\ny: #X & {z: 9, w: 7}\n" = true := by
+  native_decide
+
+-- REGEX ARM SELECT (both-direction guard, admit): the surviving struct arm resolves to `{a,z}`; the
+-- regex arm dropped, not over-rejecting the sibling. cue v0.16.1 `{a,z}`.
+theorem defflatten_regexarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | =~\"foo\")\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- NOTPRIM ARM (reject): a `!=` negation arm (`!=5`) is number-kinded and dies against the def's struct
+-- literal, so it is distribute-safe; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_notprimarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | !=5)\ny: #X & {z: 9, w: 7}\n" = true := by
+  native_decide
+
+-- MINITEMS ARM (reject): a CALL-FORM list-length validator (`list.MinItems(2)`) reaches the
+-- def-flatten level as an unlowered `.builtinCall`; `disjArmClass` lowers it to a `.lengthConstraint`
+-- (`.items`) which dies against the struct literal, so it is distribute-safe; the `{z:9}` arm closes
+-- and rejects `w`. cue v0.16.1 bottom.
+theorem defflatten_minitemsarm_rejects :
+    exportJsonBottoms "import \"list\"\n#X: {a: 1} & ({z: 9} | list.MinItems(2))\ny: #X & {z: 9, w: 7}\n"
+      = true := by
+  native_decide
+
+-- MINFIELDS ARM (reject): a `struct.MinFields(2)` arm is the subtle length case — it COMPOSES-CLOSED
+-- with the def's CLOSED literal (carrying no new allowed field), so the literal closes around it and a
+-- use-site extra `w` is rejected. `disjArmClass` lowers the call-form builtin to a `.lengthConstraint`
+-- (`.fields`); the emission closes the literal, so the arm rejects extras exactly as a closed struct.
+-- cue v0.16.1 bottom (a closed definition rejects the extra regardless of the validator).
+theorem defflatten_minfieldsarm_rejects :
+    exportJsonBottoms
+      "import \"struct\"\n#X: {a: 1, b: 2} & ({z: 9} | struct.MinFields(2))\ny: #X & {w: 7}\n"
+      = true := by
+  native_decide
+
+-- MINFIELDS ARM SELECT (both-direction guard, admit): with a two-field literal satisfying the count,
+-- selecting the declared `z` resolves to `{a,b,z}`; the MinFields arm composed-closed to `{a,b}` and
+-- dropped against `z`. cue v0.16.1 `{a,b,z}`.
+theorem defflatten_minfieldsarm_select_admits :
+    exportJsonMatches
+      "import \"struct\"\n#X: {a: 1, b: 2} & ({z: 9} | struct.MinFields(2))\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- ERROR ARM (DISJ-CLOSEDNESS-ERROR-ARM-LEAK, reject): a DIRECT `error(...)` disjunction arm in a
+-- CLOSED definition. The layer separation dissolves the bug214b tension — bug214b's disjunction lives
+-- under a REGULAR field (`close=false`, never distributed), while a def-flatten `error` arm force-folds
+-- to bottom against the closed literal (its `.conj` bottoms, message preserved through the meet), so it
+-- carries no allowed field; the `{z:9}` arm closes and rejects `w`. cue v0.16.1 bottom (message `x`).
+theorem defflatten_errorarm_rejects :
+    exportJsonBottoms "#X: {a: 1} & ({z: 9} | error(\"x\"))\ny: #X & {w: 7}\n" = true := by
+  native_decide
+
+-- ERROR ARM SELECT (both-direction guard, admit): selecting the declared `z` resolves to `{a,z}`; the
+-- error arm dropped as bottom, not force-folding the whole disjunction. cue v0.16.1 `{a,z}`.
+theorem defflatten_errorarm_select_admits :
+    exportJsonMatches "#X: {a: 1} & ({z: 9} | error(\"x\"))\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
 -- ### missing-field-selection — a GENUINELY-MISSING field of a CONCRETE struct selects to ABSENT.
 --
 -- A presence-test on a never-declared field of a concrete struct (`x: {a:1}`, then `x.b == _|_`)

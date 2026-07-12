@@ -3,7 +3,38 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **LIST-SLICE-EMBEDDED-CARRIER — slice desugar now routes through `listItems?`; carrier completeness
+HEAD: **DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL — the closedness-disjunction distribute leak CLASS closed
+STRUCTURALLY (LANDED 2026-07-13).** Replaced the hand-enumerated `isDistributableDisjArm` whitelist (which
+missed the bottoms-vs-struct arm class TWICE) with a DERIVED predicate `disjArmClass : Value → DisjArmClass`
+(`Kue/EvalBase.lean`) — a COMPLETE match over every `Value` constructor (no catch-all), so a new shape is a
+COMPILE error, not a silent leak. Four classes derived from how the arm meets the def's own struct literal:
+`fieldCarryingClosed` (union+close), `fieldCarryingOpen` (`.refId`, ref governs), `bottomsVsStruct`
+(scalar/kind/notPrim/regex/format/bound/uniqueItems/list-carriers/lengthConstraint/`error`/⊥ — carries no new
+field), `blocking` (unknown result kind → disj stays raw). **Emission reframe:** the `bottomsVsStruct` branch
+CONJ's the pick against the CLOSED literal, so a kind-mismatched pick bottoms AND a composes-closed pick
+(`struct.MinFields`, `_`) rides the closed literal and rejects extras — this is what makes `.fields` correct
+WITHOUT a special-case (falsifying EXCLUDED-ARM-LEAK-2's own `k != .fields` prescription: cue ⊥, a closed def
+rejects the extra regardless of the validator). **Call-form validators** (`list.MinItems(2)`,
+`struct.MinFields(2)`) reach flatten UNLOWERED; `disjArmClass` lowers them through the existing
+`evalBuiltinCall` — no builtin-name hand-list. **bug214b DISSOLVED by layer separation:** distribution fires
+only for DEFINITION fields (`isDefinition` gates `close`), so bug214b's REGULAR-field `structShape | error`
+force-folds untouched; a def-context `error` arm is `bottomsVsStruct` (force-folds to ⊥). Closes
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2** (regex/format/unique/notprim/lengthConstraint) AND
+**DISJ-CLOSEDNESS-ERROR-ARM-LEAK** by construction. Wild `def-closedness-disj-{excluded-arm-{regex,format,
+unique,notprim,minitems,minfields},error-arm}/` RED→GREEN; 9 `Bug2xTests` `defflatten_*arm_*` guards. cue
+error-arm diagnostic differs (cue `x` vs kue `conflicting values`) — result ⊥ agrees, message-only. `check.sh`
+GREEN, zero L-series/Bug2/closedness/bug214b flips.
+**Milestone "all soundness leaks closed" NOT yet reached** — two HIGH silent-wrong-value leaks remain:
+**LIST-SORT-EMBEDDED-CARRIER** (`runSort` matches only `.list`, not `listItems?` — 5th carrier-miss on the
+effectful `EvalM` path) and **LIST-UNIQUEITEMS-CALL-FORM-BOTTOM** (`list.UniqueItems(list)` call-form
+unhandled ⇒ ⊥). The closedness-disjunction distribute CLASS is closed; these two are list-carrier/call-form
+value bugs, not closedness.
+**NEXT (ranked):** LIST-SORT-EMBEDDED-CARRIER (HIGH) → LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (HIGH) → then
+re-confirm the "all soundness leaks closed" milestone → **two-phase audit DUE** (this batch un-audited) → LOW
+gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED / DISJ-NESTED-ERROR-ARM-AMBIGUOUS) →
+PB-EVALBASE-SPLIT → deferred float FDLIBM. **Alpha release HELD for chakrit (attended).**
+
+Prior HEAD: **LIST-SLICE-EMBEDDED-CARRIER — slice desugar now routes through `listItems?`; carrier completeness
 covers slice too (LANDED 2026-07-13).** The 4th list-carrier miss (2026-07-13 Phase A audit): the `slice`
 desugar of `x[lo:hi]` in `evalCoreBuiltin` (`Kue/Builtin.lean`) hand-enumerated `.list`+`.listTail` and MISSED
 `.embeddedList` — `evalCoreBuiltin` never mapped `openListOperand` (only `evalListBuiltin` did), so `71598c6`'s
@@ -17,12 +48,9 @@ embedded-open-tail) RED→GREEN; 10 `SliceTests` theorems incl. `embedded_len_st
 `embedded_index_still_selects` regression guards. cue v0.16.1 DIVERGES (`[9,1]` — bleeds hidden `_y` into the
 slice, a cue bug; its own len/index are correct); spec-correct `[1,2]`, logged `cue-divergences.md`. `check.sh`
 GREEN, zero SliceTests/list-fixture flips.
-**Do NOT re-claim "all soundness leaks closed"** — DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH) remains open.
-**NEXT (ranked):** DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH — the DIRECT `error(...)` arm leaks past closedness:
-`#X: {a:1} & ({z:9} | error("x"))` · `#X & {w:7}` ⇒ kue `{a,z,w}`, cue ⊥; the error arm is BLOCKING so the def
-stays OPEN. The closedness+disjunction family has RESISTED incremental patches — this one likely needs a
-per-arm-uniform-distribution DESIGN or Fable-5 escalation, NOT another incremental patch. FLAG that up front.)
-→ re-confirm the "all soundness leaks closed" milestone (still NOT reached until the error-arm leak closes)
+> SUPERSEDED by the new HEAD (DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL, 2026-07-13): DISJ-CLOSEDNESS-ERROR-ARM-LEAK
+> and DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2 are now ✅ CLOSED by the derived predicate — no incremental patch or
+> Fable-5 escalation was needed (the bug214b tension dissolved by layer separation). See the current HEAD's NEXT.
 → Phase B / two-phase audit DUE in 2-3 slices (this + DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK are un-audited) → LOW
 gaps (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED / DISJ-NESTED-ERROR-ARM-AMBIGUOUS) →
 PB-EVALBASE-SPLIT → deferred float FDLIBM. **Alpha release HELD for chakrit (attended).**

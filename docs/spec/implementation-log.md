@@ -22338,3 +22338,92 @@ Surfaced during the Sort re-sweep. Filed for a wild-fixture-first fix slice.
 No inline fix applied — all three findings are HIGH soundness fixes requiring test-first
 `wild/` fixtures (full slices), not low-risk inline cleanups. Alpha HELD.
 DISJ-CLOSEDNESS-ERROR-ARM-LEAK remains the known-open HIGH.
+
+---
+
+## Completed Slice: DISJ-CLOSEDNESS-DISTRIBUTE-STRUCTURAL
+
+Goal: close the whole "bottoms-against-a-struct-literal disjunction arm" leak class BY
+CONSTRUCTION — replace the hand-enumerated `isDistributableDisjArm` whitelist (which missed
+the same class TWICE) with a DERIVED predicate. Closes DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2
+(regex/format/uniqueItems/notPrim/lengthConstraint arms) AND DISJ-CLOSEDNESS-ERROR-ARM-LEAK
+(the direct `error(…)` arm).
+
+### The derived predicate
+
+`disjArmClass : Value → DisjArmClass` (`Kue/EvalBase.lean`) — a COMPLETE match over every
+`Value` constructor (no catch-all), so a new shape is a compile error, not a silent leak.
+Four classes, DERIVED from how the arm meets the def's non-empty own struct literal `{…}`:
+
+- `fieldCarryingClosed` (struct / structComp) → union with the literal + close;
+- `fieldCarryingOpen` (def-`.refId`) → compose OPEN under the ref (the ref governs closedness);
+- `bottomsVsStruct` (prim / kind / notPrim / stringRegex / stringFormat / boundConstraint /
+  lengthConstraint / uniqueItems / list / listTail / embeddedList / embeddedScalar / bottom /
+  bottomWith / `error(…)`) → the arm carries NO new allowed field: met with the CLOSED literal
+  it either bottoms (kind mismatch) or composes-closed (a length residual);
+- `blocking` (top / conj / unary / binary / ref / thisStruct / selector / index / disj /
+  comprehension / listComprehension / interpolation / dynamicField / closure / patternLabel,
+  and any non-`error` `.builtinCall` that does not lower to a `bottomsVsStruct` value) → the
+  arm's result kind is unknown, so the disjunction stays raw (`rest`) and its eval path is
+  unchanged.
+
+`isDistributableDisjArm` is now `disjArmClass v ≠ .blocking` (with a fuel-bounded recursion
+for a nested `.disj`).
+
+### Emission reframe — CLOSE the literal in the bottoms branch
+
+The per-combination emission (`flattenConjDefRef`'s close branch, `Kue/EvalBase.lean`) gained
+a third path. Previously: all-unionable → union+close; else → `.conj [literal, picks]` (OPEN
+literal, relies on bottoming). Now:
+
+1. all picks `fieldCarryingClosed` → `closeLiteralUnion (literals ++ picks)`;
+2. any pick `fieldCarryingOpen` → `.conj (literals ++ picks)` (OPEN literal — a `.refId` pick
+   governs its own closedness; closing would wrongly reject a field the ref admits);
+3. else (some `bottomsVsStruct` pick, no open pick) → `.conj (closeLiteralUnion literals :: picks)`
+   — the CLOSED literal. A kind-mismatched pick (scalar/list/`error`) bottoms the combination;
+   a composes-closed pick (`struct.MinFields`, `_`) rides the closed literal and REJECTS a
+   use-site extra exactly as a closed struct does.
+
+Closing the literal in path 3 is what makes `struct.MinFields` (`.lengthConstraint .fields`)
+correct WITHOUT a special-case — it composes-closed rather than bottoming, and the closed
+literal supplies the rejection. This falsifies EXCLUDED-ARM-LEAK-2's own earlier prescription
+(`k != .fields`, "stays OPEN-composed"): observed `#X: {a:1,b:2} & ({z:9} | struct.MinFields(2))`
+· `#X & {w:7}` ⇒ kue was `{a,z,w}` (leak), cue ⊥ — a closed definition rejects the extra
+regardless of the validator. `.fields` is now uniform with the other length kinds.
+
+### Call-form validators lowered through `evalBuiltinCall`
+
+A call-form validator (`list.MinItems(2)`, `struct.MinFields(2)`) reaches the flatten level as
+an UNLOWERED `.builtinCall` — bare validators (`=~"…"`, `!=5`, `time.Duration`, `list.UniqueItems`)
+pre-resolve during the def body's early eval, but call-forms only lower when the arm is
+evaluated (after flatten). So `disjArmClass`'s `.builtinCall` arm lowers the call through the
+existing `evalBuiltinCall` (`Kue/Builtin.lean`, pure, no env) and classifies the lowered value
+via the `bottomsVsStructValue` Bool probe — NO hand-list of builtin names; the classification is
+derived from the same lowering the evaluator uses. A residual (abstract args) or struct-producing
+builtin lowering stays `blocking`.
+
+### bug214b / error-arm reconciliation — DISSOLVED by layer separation
+
+`bug214b_disj_arm_conflict_bottoms` requires `structShape | error("nope")` under a REGULAR
+field to force-fold. Closedness distribution fires ONLY for DEFINITION fields
+(`field.fieldClass.isDefinition` gates `close`), so bug214b's regular-field disjunction is NEVER
+distributed — it force-folds at normal eval, untouched. In a DEFINITION context the `error`
+arm is `bottomsVsStruct` (`{a:1} & error(…)` force-folds to ⊥), so the def closes `{a,z}` around
+it. The two layers — closedness distribution (decides the field set) vs disjunction value
+resolution (decides the value) — never collide. cue surfaces the error message `x` (the `{a,z}`
+arm bottoms on `w`, the `error` arm resurfaces as sole survivor); kue surfaces
+`conflicting values (bottom)` (the closedness rejection). Result ⊥ agrees; only the diagnostic
+differs (message-only, spec-irrelevant).
+
+### Tests
+
+- Wild (RED→GREEN, spec-adjudicated ⊥): `def-closedness-disj-excluded-arm-{regex,format,unique,
+  notprim,minitems,minfields}/`, `def-closedness-disj-error-arm/`.
+- `Bug2xTests` both-direction guards: `defflatten_regexarm_{rejects,select_admits}`,
+  `defflatten_notprimarm_rejects`, `defflatten_minitemsarm_rejects`,
+  `defflatten_minfieldsarm_{rejects,select_admits}`, `defflatten_errorarm_{rejects,select_admits}`.
+- Regression sweep (manual kue-vs-cue): valid-`z` still `{a,z}` for every arm; open-tail sibling
+  still admits `w`; a `.refId` arm still ref-governed; multidisj cross-product + defaults intact;
+  regular-field (non-def) disjunctions still stay OPEN (matches cue); bug214b force-fold intact.
+
+`check.sh` GREEN. Zero closedness / L-series / Bug2 / DEF-FLATTEN / bug214b flips.

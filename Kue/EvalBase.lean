@@ -1876,29 +1876,92 @@ def disjArmCrossProduct : List (List (Mark × Value)) -> List (List (Mark × Val
       let restProduct := disjArmCrossProduct rest
       alts.flatMap fun a => restProduct.map fun combo => a :: combo
 
-/-- Can a def DISTRIBUTE its own-literal union across this arm and close/compose it? A default-deny
-    whitelist of two categories. CLOSABLE/COMPOSABLE arms carry field content: a struct literal
-    (unioned+closed), a def-`.refId` (open-composed — the ref governs closedness), or a NESTED
-    distributable disjunction (flattened first). DISTRIBUTE-SAFE arms carry a concrete non-struct
-    type that DIES against the def's non-empty own struct literal (`{a:1} & V ⇒ ⊥`), so the
-    combination bottoms and drops, contributing nothing: a scalar (`.prim`), a scalar-kind
-    (`.kind` — every `Kind` is a scalar/list, never struct), a comparator bound (`.boundConstraint`),
-    or a list carrier (`.list`/`.listTail`/`.embeddedList`). Both categories let the disjunction
-    close its own struct arms. Arms OUTSIDE the whitelist — an `error(...)` (force-fold), a
-    comprehension (can produce a struct), an unevaluated expression — are NOT distributed; the whole
-    disjunction stays UNEVALUATED in `rest` so its existing eval path is unchanged. -/
+/-- The distribution class of a disjunction arm, DERIVED from how the arm meets the def's own
+    non-empty struct literal `{…}`. Replaces a hand-enumerated distribute-safe whitelist that
+    twice missed an arm shape which bottoms against a struct: the `match` is COMPLETE over every
+    `Value` constructor, so a NEW shape is a compile error, not a silent closedness leak.
+    - `fieldCarryingClosed` — a struct literal / struct comprehension: `{a:1} & {z:9}` UNIONS to a
+      struct closed with the literal's allowed-set.
+    - `fieldCarryingOpen` — a def-`.refId`: the ref governs its OWN closedness, so the literal
+      composes OPEN under it (`{a:1} & #Base` — `#Base` decides which fields are allowed).
+    - `bottomsVsStruct` — an arm that carries NO new allowed field, because met with the CLOSED
+      literal it either BOTTOMS (a scalar/kind/bound/regex/format/list/`uniqueItems`/`notPrim`/
+      list-or-rune-length arm mismatches the struct kind; an `error(…)` force-folds; a `⊥`) or
+      COMPOSES-CLOSED (a `struct.MinFields` length arm rides the CLOSED literal as a residual). The
+      literal is closed around this pick, so the arm rejects a use-site extra exactly as a closed
+      struct does. `error(…)` is the one `.builtinCall` here — it force-folds to `⊥` with its
+      message preserved through the meet; every other builtin could return a struct, so is `blocking`.
+    - `blocking` — an unevaluated expression whose result kind is unknown (it could yield a
+      new-field struct, or `_` composes OPEN): the def cannot distribute, so the whole disjunction
+      stays UNEVALUATED in `rest` and its existing eval path is unchanged. -/
+inductive DisjArmClass where
+  | fieldCarryingClosed
+  | fieldCarryingOpen
+  | bottomsVsStruct
+  | blocking
+  deriving BEq
+
+/-- Does `v` carry NO new allowed struct field — a validator / scalar / list value that, met with a
+    non-empty struct literal, either bottoms (kind mismatch) or composes-closed (a length residual)?
+    A Bool PROBE (catch-all permitted) used to classify a `.builtinCall` arm AFTER lowering it
+    through `evalBuiltinCall`: a call-form validator (`list.MinItems(2)`, `struct.MinFields(2)`)
+    reaches the def-flatten level as an unlowered `.builtinCall`, so it must be lowered before its
+    distribute-safety is visible. -/
+def bottomsVsStructValue : Value -> Bool
+  | .prim _ | .kind _ | .notPrim _ | .stringRegex _ | .stringFormat _
+  | .boundConstraint _ _ | .lengthConstraint _ _ _ | .uniqueItems
+  | .list _ | .listTail _ _ | .embeddedList _ _ _ | .embeddedScalar _ _
+  | .bottom | .bottomWith _ => true
+  | _ => false
+
+def disjArmClass : Value -> DisjArmClass
+  | .struct _ _ _ _ _ => .fieldCarryingClosed
+  | .structComp _ _ _ => .fieldCarryingClosed
+  | .refId _ => .fieldCarryingOpen
+  | .prim _ => .bottomsVsStruct
+  | .kind _ => .bottomsVsStruct
+  | .notPrim _ => .bottomsVsStruct
+  | .stringRegex _ => .bottomsVsStruct
+  | .stringFormat _ => .bottomsVsStruct
+  | .boundConstraint _ _ => .bottomsVsStruct
+  | .lengthConstraint _ _ _ => .bottomsVsStruct
+  | .uniqueItems => .bottomsVsStruct
+  | .list _ => .bottomsVsStruct
+  | .listTail _ _ => .bottomsVsStruct
+  | .embeddedList _ _ _ => .bottomsVsStruct
+  | .embeddedScalar _ _ => .bottomsVsStruct
+  | .bottom => .bottomsVsStruct
+  | .bottomWith _ => .bottomsVsStruct
+  | .builtinCall name args =>
+      if name == "error" then .bottomsVsStruct
+      -- A call-form validator (`list.MinItems(2)`, `struct.MinFields(2)`) is an unlowered
+      -- `.builtinCall` here; lower it and classify the validator. A builtin whose lowering is a
+      -- residual `.builtinCall` (abstract args) or a struct is unknown → `blocking`.
+      else if bottomsVsStructValue (evalBuiltinCall name args) then .bottomsVsStruct
+      else .blocking
+  | .top => .blocking
+  | .conj _ => .blocking
+  | .unary _ _ => .blocking
+  | .binary _ _ _ => .blocking
+  | .ref _ => .blocking
+  | .thisStruct => .blocking
+  | .selector _ _ => .blocking
+  | .index _ _ => .blocking
+  | .disj _ => .blocking
+  | .comprehension _ _ => .blocking
+  | .listComprehension _ _ => .blocking
+  | .interpolation _ => .blocking
+  | .dynamicField _ _ _ => .blocking
+  | .closure _ _ => .blocking
+  | .patternLabel _ => .blocking
+
+/-- Can a def DISTRIBUTE its own-literal union across this arm and close/compose it? True iff the
+    arm's `disjArmClass` is not `blocking`. A nested distributable disjunction is flattened before
+    distribution, so it recurses here (fuel-bounded); at fuel exhaustion the conservative `blocking`
+    default (`disjArmClass (.disj _)`) holds, leaving the disjunction raw. -/
 def isDistributableDisjArm : Nat -> Value -> Bool
-  | _, .struct _ _ _ _ _ => true
-  | _, .structComp _ _ _ => true
-  | _, .refId _ => true
-  | _, .prim _ => true
-  | _, .kind _ => true
-  | _, .boundConstraint _ _ => true
-  | _, .list _ => true
-  | _, .listTail _ _ => true
-  | _, .embeddedList _ _ _ => true
   | fuel + 1, .disj alts => alts.all fun a => isDistributableDisjArm fuel a.snd
-  | _, _ => false
+  | _, v => disjArmClass v != .blocking
 
 /-- Is `c` a `.disj` every arm of which is `isDistributableDisjArm` — a disjunction the def can
     distribute its own-literal union across (per-arm close for struct literals, open-compose for
@@ -2121,10 +2184,21 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                                   let mark := if combo.all (fun p => p.fst == Mark.default)
                                     then Mark.default else Mark.regular
                                   let picks := combo.map (·.snd)
-                                  if picks.all isUnionableDefValue then
+                                  if picks.all (fun p => disjArmClass p == .fieldCarryingClosed) then
                                     (closeLiteralUnion (literals ++ picks)).map (fun v => (mark, v))
-                                  else
+                                  -- A `fieldCarryingOpen` pick (a def-`.refId`) GOVERNS its own
+                                  -- closedness, so the literal composes OPEN under it — closing the
+                                  -- literal would wrongly reject a field the ref admits.
+                                  else if picks.any (fun p => disjArmClass p == .fieldCarryingOpen) then
                                     some (mark, .conj (literals ++ picks))
+                                  -- No open pick and not all unionable ⇒ some pick is
+                                  -- `bottomsVsStruct`. CLOSE the literal so a composes-closed pick
+                                  -- (`struct.MinFields`, `_`) rejects a use-site extra, and a
+                                  -- kind-mismatched pick (scalar/list/`error`) bottoms the combination.
+                                  else
+                                    match closeLiteralUnion literals with
+                                    | some closed => some (mark, .conj (closed :: picks))
+                                    | none => some (mark, .conj (literals ++ picks))
                               rest ++ [.disj closedArms]
                     else expanded
                 | _ => [constraint]
