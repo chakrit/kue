@@ -20327,3 +20327,54 @@ byte-identical.
 (F4 `/` LANDED), `cue-spec-gaps.md` STDLIB-FLOAT-F4 (rule corrected + `/` implemented),
 `compat-assumptions.md` (§Numeric literals / §Arithmetic expressions). No `cue-divergences.md`
 entry — kue byte-matches cue here. Committed on `main`.
+
+---
+
+## Audit Slice: STDLIB campaign Phase-A code-quality audit (2026-07-12)
+
+Batch `f5b1537..69453ca` — the 10 code slices since the last two-phase audit
+(STDLIB-TIME, TIME-AUDIT, NET, TEXTTEMPLATE-T1, STRING-ESCAPE-SET, BYTE-ESCAPE-STRICT,
+FLOAT-F0, FLOAT-F4 `+ - *`, MANIFEST-FIELDCOUNT, FLOAT-F4-DIV). No code change (audit slice
+— logged per the "audits get log entries too" duty).
+
+### A4 — audit-the-last-audit
+
+All deferred items from the prior STDLIB audit rounds reconcile clean, still deferred with
+recorded basis: B-3 DROPPED (moot — no shared helper existed); B-4 (strings.* test-org move)
+and 2B (`.validator` sum-type collapse) both COUPLED to a future test-org pass / 3rd validator
+shape; `list.IsSorted` blocked on the BI-EFF comparator seam; strconv `Quote`/`Unquote`/
+`FormatFloat`/`ParseFloat` blocked on the float64 shortest-round-trip wall (all routed to
+`unsupportedBuiltin`, never faked). Nothing re-entered the active queue; nothing to re-rank.
+
+### Batch verdict — HIGH quality
+
+- **Illegal-states (checked first).** `.stringFormat` is a CLOSED sum (`StringFormat`,
+  `Kue/Value.lean`) threaded through every `.stringRegex` match site in parallel — meet/disjoin
+  (`Lattice`), subsume (`Order`), format (`Format`), manifest (`Manifest`), hash/tag/iter
+  (`EvalBase`), resolve (`Resolve`), eval-ops (`EvalOps`), builtin dispatch (`Builtin`) — with
+  NO catch-all `_` swallowing it. A new time/net format surface forces a dispatch decision.
+- **Totality.** Zero new `partial def`; every new function is fuel-bounded or structural, with
+  `termination_by` where the manifest fuel-decouple (breadth-free lexicographic `(n, tier, len)`)
+  needed it — compiler-verified.
+- **Correctness/divergences.** Documented and spec-adjudicated: exact-integer duration fraction
+  (vs cue float64), decimal `Sqrt`/`Pow` self-consistency, apd `/` ideal-exponent (empirically
+  pinned, cue-compat spec-silent display). apd `+ - *` / `apdDivide?` rounding + `divideDecimalRational?`
+  fuel bounds read sound.
+
+### Findings (5, filed to plan.md — none inline-fixable low-risk)
+
+- **PA-NET-1 (MEDIUM, illegal-states).** `NetAddr.v6 (bytes : List UInt8)` holds "always 16"
+  as a comment not a type; classifiers read via `getD i 0` defaults. Tighten to fixed-width.
+- **PA-ESC-2 (LOW, DRY).** `decodeStringEscape`/`decodeByteEscape` duplicate the simple-escape
+  core; extract a shared codepoint table.
+- **PA-SF-3 (LOW, arch).** `stringFormatValid` (time+net dispatcher) sits in `Time.lean`, forcing
+  `Time → Net`; belongs with `StringFormat`. Phase-B candidate.
+- **PA-SUB-4 (LOW, precision — sound).** Order.lean stringFormat subsumption is equality-only;
+  `net.IP()` doesn't subsume `net.IPv4()`. Conservative, sound, imprecise.
+- **PA-TT-5 (LOW, fuel — sound).** TextTemplate quadratic fuel may spuriously bottom a deeply
+  nested-range template. Fails closed; T1 scope; capture a `wild/` fixture if seen.
+
+### Verification
+
+No code touched — plan.md + this log entry only. Git state pre-audit: tree clean, HEAD ==
+upstream at `69453ca`. Committed on `main`.

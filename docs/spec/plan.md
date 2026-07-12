@@ -421,6 +421,47 @@ enforcement), surfaced by slice D's separator work, is queued below.
   Wild-caught OUT-OF-SCOPE bug queued: `testdata/wild/cue-unicode-escape-dropped/` (`.known-red`) —
   kue's cue-file string lexer drops the backslash on a `\uXXXX` escape; seed for a string-lexer slice.
 
+**STDLIB campaign Phase-A code-quality audit (2026-07-12, batch `f5b1537..69453ca`, 10 slices:
+Time/Net/TextTemplate/escape-set/byte-escape/Float-F0/F4/F4-div/manifest-fieldcount).** A4
+reconciliation: all previously-deferred items remain legitimately deferred with recorded basis —
+B-3 DROPPED (moot), B-4 (strings test-org) and 2B (validator sum-type) coupled to a future
+test-org / 3rd-validator trigger, `list.IsSorted` blocked on the BI-EFF comparator seam, strconv
+`Quote`/`FormatFloat` blocked on the float64-shortest-round-trip wall (all `unsupportedBuiltin`,
+never faked). Nothing to re-rank. Batch verdict: HIGH quality — `.stringFormat` is a closed sum
+threaded through EVERY `.stringRegex` match site (meet, disjoin, subsume, format, manifest, hash,
+resolve) with zero catch-all swallow; zero new `partial def` (all totality via fuel/structural,
+compiler-verified via `termination_by`); documented cue-divergences (exact-int duration frac,
+decimal Sqrt). Five findings, none inline-fixable low-risk (all touch core parse/type or are
+Phase-B placement), all filed:
+- **PA-NET-1 (MEDIUM, illegal-states).** `NetAddr.v6 (bytes : List UInt8)` carries a
+  "always length 16 by construction" invariant as a DOC COMMENT, not the type — every classifier
+  then reads it with `bs.getD i 0` defaults that can't fire. Tighten the carrier to fixed width
+  (a 16-field tuple like `.v4`, or `Vector UInt8 16`), erasing the defaults and the comment.
+  `finalizeIPv6` already only ever emits exactly-16 lists, so the smart-constructor is free. The
+  repo's reason-to-be finding (philosophy §1). Medium blast radius (touches all `netIs*`), file
+  not inline.
+- **PA-ESC-2 (LOW, DRY).** `decodeStringEscape` and `decodeByteEscape` (`Kue/Parse.lean`)
+  duplicate the shared simple-escape core (`\a\b\f\n\r\t\v\\\/` + `\u`/`\U` codepoint). Extract a
+  shared `simpleEscapeCodepoint? : Char → Option Nat` both consume (byte via raw byte /
+  `codepointBytes`, string via `Char.ofNat`); keep the context-specific arms separate (`\x`/`\NNN`/`\'`
+  byte-only, `\"` string-only). Core-parse edit → file, TDD.
+- **PA-SF-3 (LOW, arch — Phase-B candidate).** `stringFormatValid` (the `StringFormat`→predicate
+  dispatcher spanning BOTH time and net validators) lives in `Kue/Time.lean`, forcing a
+  `Time → Net` import for a function that is neither time- nor net-specific. Belongs with
+  `StringFormat`'s definition (own leaf module, or wherever both `Time` and `Net` predicates can be
+  imported). Layering smell, not a bug.
+- **PA-SUB-4 (LOW, precision — sound).** `Kue/Order.lean` stringFormat subsumption is
+  equality-only (`expectedFmt == actualFmt`), so `net.IP()` does not subsume `net.IPv4()`/`net.IPv6()`
+  and the address-class hierarchy is flat. Sound (conservative false-negative, mirrors the
+  `stringRegex` structural-equality arm), but imprecise: a class-hierarchy subsumption would
+  tighten `net.IPv4() ⊑ net.IP()`. Note-grade.
+- **PA-TT-5 (LOW, fuel-sufficiency — sound).** `TextTemplate.runTemplate` fuel
+  `(nodeCount+1)(ds+1)²+ds+16` is quadratic in data size; nested `{{range}}` expands
+  multiplicatively, so a pathological depth-≥3 nested-range template could exhaust fuel and
+  spuriously `.bottom`. Fails CLOSED (never a wrong value) and T1 scope, but the bound is not
+  proven sufficient for nesting depth. If a real nested-range template ever bottoms, capture a
+  `wild/` fixture and lift the bound to `nodeCount · ds^depth`.
+
 **STDLIB-batch two-phase audit followup (2026-07-10, `4625079..2c3659b`).** Three remaining LOW/polish
 findings closed in one audit-followup slice; one new leniency bug QUEUED.
 - **Phase-B LOW-1 — `BuiltinFamily` stale doc comment. ✅ CLOSED (2026-07-10).** The doc said "eight
