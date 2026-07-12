@@ -2,7 +2,8 @@
 
 # Session resume — 2026-07-11
 
-`check.sh` GREEN. Standing keep-going loop governs. HEAD: **DOCS-CLEANUP — the docs now state a
+`main` == `gh/main` @ `a2bc950` (pushed). `check.sh` GREEN. Standing keep-going loop governs.
+HEAD: **DOCS-CLEANUP — the docs now state a
 single goal: a correct, spec-conformant CUE implementation across the whole language + stdlib
 surface (chakrit, 2026-07-12).** CLAUDE.md § Project carries the north-star (spec-conformance is
 the goal; `cue` is a fallible reference; no config corpus is a target/gate/floor/priority). Swept
