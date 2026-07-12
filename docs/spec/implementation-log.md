@@ -22282,3 +22282,59 @@ spec-gap adjudication, extended here to the slice position. Logged in `cue-diver
 Full `./scripts/check.sh` green; every existing `SliceTests` `slice_*` (plain `.list` +
 `.listTail`) and list fixture unflipped — the classifier route subsumes the two prior arms
 byte-identically for those carriers.
+
+---
+
+## Completed Slice: Phase A Audit (2026-07-13) — `0707776` + `f7f954f` adversarial review
+
+Goal: Phase A code-quality audit of the two closedness/carrier fixes since the last audit
+(`5738fe1..f7f954f`), matching the prior milestone-audit rigor that found two HIGH residuals
+in this exact fix class. Adversarial probing, no rubber-stamp. Ships no code change — three
+new HIGH findings filed in `plan.md`.
+
+### Reconciliation (audit-the-last-audit)
+
+- DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK ✅ landed `0707776`; wild `def-closedness-disj-excluded-arm-
+  {bound,list}` present and NOT `.known-red` (graduated).
+- LIST-SLICE-EMBEDDED-CARRIER ✅ landed `f7f954f`; wild `list-slice-embedded-carrier` graduated.
+- DISJ-CLOSEDNESS-ERROR-ARM-LEAK (HIGH) confirmed still filed OPEN — NOT closed.
+- DISJ-NESTED-ERROR-ARM-AMBIGUOUS (LOW) + the OPEN LOW backlog intact.
+
+### `0707776` verdict
+
+- TOO-PERMISSIVE: SOUND. Every added distribute-safe arm genuinely bottoms against a non-empty
+  struct literal — `Kind` has no struct/list-compatible constructor (null/bool/number/int/
+  float/string/bytes), `boundConstraint`'s operand is an `OrderedPrim` scalar, list carriers are
+  never a struct. No dropped-combination hazard. `.top` correctly stays EXCLUDED.
+- TOO-RESTRICTIVE: RESIDUAL FOUND (DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2, HIGH). Four more arm
+  shapes bottom vs a struct literal but stay excluded → def flattens OPEN → leak: `.stringRegex`
+  (`=~"foo"`), `.stringFormat` (`time.Duration`), `.uniqueItems` (validator arm), `.notPrim`
+  (`!=5`), plus a kind-DISCRIMINATED `.lengthConstraint` (`.listItems`/`.runes` leak; `.fields`
+  composes and must stay out). Each verified against kue's OWN isolated meet (internally
+  consistent) and cue (spec ⊥). Concrete repros in the plan entry.
+
+### `f7f954f` verdict
+
+- Slice routing SOUND: `listItems?` covers all three carriers; slice edges checked (embedded
+  interior/open-tail correct, OOB bottoms, abstract operand defers). The kue-more-spec-correct
+  divergence VERIFIED: an embeddedList `{[1,2,3], _y:9}` IS the list `[1,2,3]` (hidden `_y` is
+  non-output, invisible to a value read), so `[0:2]` = `[1,2]`; cue's `[9,1]` bleeds the hidden
+  field in — a cue bug (cue's own len/index on the same value are correct).
+- CARRIER RE-SWEEP: 5th miss FOUND (LIST-SORT-EMBEDDED-CARRIER, HIGH). `runSort` (`Kue/Eval.lean`)
+  matches only `.list items`, bypassing `listItems?`, so `list.Sort`/`list.SortStable` DEFER on an
+  `.embeddedList`/`.listTail` operand while a plain `.list` sorts. Sort lives on the effectful
+  `EvalM` path, which `evalListBuiltin`'s `openListOperand` normalization never reaches. Every
+  other value-level list op (Contains/Reverse/Sum/Min/Slice/Take/Drop/FlattenN/Repeat/index/for)
+  descends embeddedList correctly.
+
+### Tangential wild-caught
+
+LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (HIGH, pre-existing): `list.UniqueItems([1,2,3])` ⇒ kue ⊥,
+cue `true` — the `(list)` call form is unhandled (only the `[]`-args validator form exists).
+Surfaced during the Sort re-sweep. Filed for a wild-fixture-first fix slice.
+
+### Note
+
+No inline fix applied — all three findings are HIGH soundness fixes requiring test-first
+`wild/` fixtures (full slices), not low-risk inline cleanups. Alpha HELD.
+DISJ-CLOSEDNESS-ERROR-ARM-LEAK remains the known-open HIGH.

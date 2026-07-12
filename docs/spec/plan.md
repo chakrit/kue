@@ -231,6 +231,49 @@ DEFINITION-with-error-arm path threads the force-fold cleanly). Seed
 `testdata/wild/def-closedness-disj-error-arm/` RED first; both-direction (valid-`z` still `{a,z}`; bug214b
 L-series untouched).
 
+**DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK-2 (HIGH soundness — SILENT closedness leak; NEW, 2026-07-13 Phase A
+audit — the narrower residual of `0707776`). OPEN.** `0707776` widened `isDistributableDisjArm`
+(`Kue/EvalBase.lean`) to `.kind`/`.boundConstraint`/list-carriers, but FOUR MORE arm shapes also bottom
+against a non-empty struct literal and are still EXCLUDED, so a disjunction containing one stays
+non-distributable and the def flattens OPEN → use-site extra leaks. Each verified INTERNALLY CONSISTENT
+(kue's own isolated `{a:1} & arm` meet bottoms), and cue ⊥ (spec-correct — arm mismatches the struct kind):
+- `.stringRegex` (`=~"foo"`): `#X: {a:1} & ({z:9} | =~"foo")` · `#X & {z:9,w:7}` ⇒ kue **`{a,z,w}`** (leak), cue ⊥.
+- `.stringFormat` (`time.Duration`): same shape ⇒ kue `{a,z,w}` (leak), cue ⊥ (struct vs string).
+- `.uniqueItems` (validator arm `list.UniqueItems`): same ⇒ kue leaks, cue ⊥ (struct vs list).
+- `.notPrim` (`!=5`): same ⇒ kue leaks, cue ⊥; kue's isolated `{a:1} & !=5` bottoms (number-kinded).
+- `.lengthConstraint` PARTIAL — kind-discriminated: `.listItems`/`.runes` (`list.MinItems`,`strings.MinRunes`)
+  bottom vs a struct → leak; but `.fields` (`struct.MinFields`) COMPOSES with a struct (kue+cue agree `{a:1}`)
+  and MUST stay excluded. Needs `.lengthConstraint k _ _ => k != .fields`, NOT a blanket `=> true`.
+`.top` stays EXCLUDED (`{a:1} & _` = `{a:1}`, does NOT bottom — a distribute-safe `.top` would drop a real
+combination). Fix: add `.stringRegex`/`.stringFormat`/`.uniqueItems`/`.notPrim => true` +
+`.lengthConstraint k _ _ => k != .fields` to the distribute-safe category. Seed
+`testdata/wild/def-closedness-disj-excluded-arm-{regex,format,unique,notprim,minitems}/` RED first;
+both-direction guards (valid `z` still `{a,z}`; a `struct.MinFields` arm stays OPEN-composed, not force-closed).
+Then re-sweep the FULL `Value` constructor set once more against "does this arm bottom vs a non-empty struct
+literal?" — the whitelist has now missed the same class TWICE.
+
+**LIST-SORT-EMBEDDED-CARRIER (HIGH soundness — SILENT wrong value; 5th carrier-miss; NEW, 2026-07-13 Phase A
+audit — the residual `f7f954f`'s re-sweep predicted). OPEN.** `runSort` (`Kue/Eval.lean` ~354) matches ONLY
+`.list items`, not `listItems?`, so a `.embeddedList`/`.listTail` operand falls to the `other` branch and
+DEFERS ("incomplete value") / bottoms instead of sorting. `list.Sort({[3,1,2], _y:9}, list.Ascending)` ⇒ kue
+**`incomplete value: list.Sort({_y:9,[3,1,2]}, …)`**, cue `[1,2,3]`; `list.Sort([3,1,2, ...int], …)` same. A
+plain `.list` sorts fine — classic carrier asymmetry, exactly the LIST-SLICE class one layer down (Sort lives
+on the EFFECTFUL `EvalM` path, so `evalListBuiltin`'s `openListOperand` normalization never reached it).
+Fix: route `runSort`'s evaluated `listValue` through `listItems?` (covers all three carriers; mirrors the
+LIST-SLICE fix), preserving the settled→bottom / abstract→defer fallback for a non-list operand. Shared by
+`list.SortStable` (same `runSort`). Seed `testdata/wild/list-sort-embedded-carrier/` RED first (embedded
+CLOSED — unambiguously `[1,2,3]`; adjudicate the open-tail `.listTail` expected per spec — cue prefix-sorts).
+
+**LIST-UNIQUEITEMS-CALL-FORM-BOTTOM (HIGH soundness — SILENT wrong value; wild-caught during the Phase A
+carrier re-sweep — PRE-EXISTING, NOT in the audited batch). OPEN.** `list.UniqueItems(x)` with a LIST
+argument is unhandled: only the `[]`-args validator form (`| "list.UniqueItems", [] => .uniqueItems`,
+`Kue/Builtin.lean` ~805) and the bare-reference form exist, so the `(list)` call passes `[list]` and falls to
+`unresolvedOrBottom` ⇒ ⊥. `list.UniqueItems([1,2,3])` ⇒ kue **⊥**, cue `true`; `([1,1])` ⇒ kue ⊥, cue `false`.
+Spec-adjudicate: `list.UniqueItems` applied to a concrete list yields whether its items are structurally
+unique (reuse the existing `structuralEq`/uniqueness predicate the `.uniqueItems` validator already uses).
+Fix: add a call-form arm `| "list.UniqueItems", [.list items] => .prim (.bool …)` (via `listItems?` so carriers
+descend) beside the validator form. Seed `testdata/wild/list-uniqueitems-call/` RED first.
+
 **LIST-SLICE-EMBEDDED-CARRIER (HIGH soundness — 4th carrier-miss; NEW, 2026-07-13 Phase A audit `71598c6`).
 ✅ LANDED (2026-07-13).** Carrier completeness now covers the slice desugar too — every list-carrier read
 routes through `listItems?`, restoring the LIST-OPS-EMBEDDED-CARRIER invariant the Phase A retraction flagged.
