@@ -2035,6 +2035,17 @@ def normalizeDefBodyConjunct (fuel : Nat) (v : Value) : List Value :=
       | .disj alts => [.disj (alts.map fun a => (a.fst, mergeDefBodyDisjArm fuel a.snd))]
       | other => [other]
 
+/-- Close a set of a definition's own struct-literals into ONE fixed field set: each is
+    normalized-to-closed (so a `...`-tail literal stays open, a plain one closes), then merged via
+    `mergeDefinitionDecls` (unions fields/patterns/openness — a shared label still `.conj`-meets),
+    and the union re-closed once. `none` for an empty set. Shared by the def-body flatten close and
+    the buried-self-ref closedness re-derivation. -/
+def closeDefLiteralUnion (vs : List Value) : Option Value :=
+  match vs.map (normalizeDefinitionValueWithFuel normalizeFuel) with
+  | [] => none
+  | first :: more => some (normalizeDefinitionValueWithFuel normalizeFuel
+      (more.foldl mergeDefinitionDecls first))
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -2077,8 +2088,21 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
         | frame :: _ =>
             match nthField id.index.val frame.snd with
             | some field =>
-                match Field.value field with
-                | .conj rawCs =>
+                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (a): a DEFINITION body that is a BARE `.disj`
+                -- (`#X: (…) | {c}`, the disjunction IS the whole body) reaches the closedness fold
+                -- by a DIFFERENT exit than the `.conj`-conjunct path — via the catch-all — so its
+                -- nested-`.conj` arm is never merged and a use-site extra leaks. Route it through
+                -- the same machinery as a single-conjunct body, so `normalizeDefBodyConjunct` merges
+                -- each pure-struct `.conj` arm to a CLOSED struct. Non-def disj bodies keep their
+                -- standalone-resolution path (closedness is a def property, not a value one).
+                let defBodyConjuncts : Option (List Value) :=
+                  match Field.value field with
+                  | .conj rawCs => some rawCs
+                  | .disj _ => if field.fieldClass.isDefinition then some [Field.value field] else none
+                  | _ => none
+                match defBodyConjuncts with
+                | none => [constraint]
+                | some rawCs =>
                     -- DEF-CLOSEDNESS-NESTED-CONJ-ARM: a def body's conjuncts are normalized to the
                     -- flat form the own-literal-union close expects — a pure-struct-literal `.conj`
                     -- conjunct (`{a} & ({b}&{d})`) is spliced into its struct members, and a `.disj`
@@ -2105,7 +2129,24 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                       | .refId rid => rid.depth.val == 0 && rid.index.val == id.index.val
                       | _ => false
                     if cs.any (fun c => !directSelfRef c
-                        && valueMentionsSlotAtDepth fuel id.index.val c) then [constraint]
+                        && valueMentionsSlotAtDepth fuel id.index.val c) then
+                      -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (b): the self-ref sits BURIED below a
+                      -- top-level conjunct (`#X: {a:1} & (#X & {b:2})`), so the body is returned
+                      -- UNEXPANDED to keep the cycle→top VALUE rule (the bare ref flows to the
+                      -- `.refId` eval arm). That drop of expansion also drops the def's CLOSEDNESS,
+                      -- leaking a use-site extra. Re-derive it ORTHOGONALLY: the buried self-ref
+                      -- contributes no new field, so the def's own struct-literals (flattened out of
+                      -- their `&`-grouping, self-ref dropped) fix the allowed-set. Close their union
+                      -- and emit it ALONGSIDE the untouched ref — closedness restored, cycle value
+                      -- unchanged. Only for a DEFINITION (closedness is a def property); a regular
+                      -- self-conj-cycle field (`x: (x & int) & 1`) keeps the bare unexpanded ref.
+                      if field.fieldClass.isDefinition then
+                        let ownLiterals := (cs.flatMap (flattenConjMembers normalizeFuel)).filter
+                          isUnionableDefValue
+                        match closeDefLiteralUnion ownLiterals with
+                        | some closed => [constraint, closed]
+                        | none => [constraint]
+                      else [constraint]
                     else
                     -- Bug2-12: a SELF-RECURSIVE CLOSED definition (`#X: #X & {a:1}`, whose body is
                     -- the `.conj [#X, {a:1}]` reached here) loses its closedness on this flatten. A
@@ -2189,19 +2230,7 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                       let literals := expanded.filter isUnionableDefValue
                       let rest := expanded.filter
                         (fun c => !isUnionableDefValue c && !isDistributableDisj normalizeFuel c)
-                      -- Close a set of own struct-literals into ONE fixed field set. Each literal is
-                      -- closed FIRST so its def-body openness is settled (`regularOpen` →
-                      -- `defClosed`, an explicit `...` stays `defOpenViaTail`); otherwise
-                      -- `unionDefOpenness` reads a raw `regularOpen` literal as OPEN and the union
-                      -- would re-open. `mergeDefinitionDecls` then re-derives a SINGLE
-                      -- `closedClauses` over the merged fields (no per-literal clause concatenation)
-                      -- and unions openness (`defOpenViaTail` dominates, so a split `...` keeps the
-                      -- union open). The final close is idempotent.
-                      let closeLiteralUnion := fun (vs : List Value) =>
-                        match vs.map (normalizeDefinitionValueWithFuel normalizeFuel) with
-                        | [] => none
-                        | first :: more => some (normalizeDefinitionValueWithFuel normalizeFuel
-                            (more.foldl mergeDefinitionDecls first))
+                      let closeLiteralUnion := closeDefLiteralUnion
                       let disjAltLists := disjEmbeds.filterMap fun c =>
                         match c with
                         | .disj alts => some (flattenNestedDisjArms normalizeFuel alts)
@@ -2261,7 +2290,6 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                                     | none => some (mark, .conj (literals ++ picks))
                               rest ++ [.disj closedArms]
                     else expanded
-                | _ => [constraint]
             | none => [constraint]
   | _, _ => [constraint]
 

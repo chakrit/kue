@@ -3,7 +3,22 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-ARM ✅ LANDED (`345f08b`, 2026-07-13, Phase B).** The sole residual
+HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL ✅ LANDED (2026-07-13).** The nested-conj-closedness class is
+now closed across ALL def-body entry paths — the two shapes the `345f08b` normal form did not reach are
+fixed (`Kue/EvalBase.lean`): (a) a bare-`.disj` DEFINITION body is routed through the same closedness
+machinery as a `.conj` body (a `defBodyConjuncts` option treats a `.disj` def body as `[body]`), so each
+pure-struct `.conj` disj arm merges to a CLOSED struct; (b) when the buried-self-ref guard fires for a
+definition it re-derives closedness ORTHOGONALLY — own struct-literals flattened out of their `&`-grouping,
+self-ref dropped, closed via the hoisted `closeDefLiteralUnion`, emitted ALONGSIDE the untouched ref, so
+cycle→top VALUE is unchanged. Both wild seeds RED→GREEN; 10 `ClosednessTests` both-direction guards;
+`check.sh` GREEN, zero L-series/Bug2/closedness/cycle flips; cycle-value orthogonality verified. **The
+"all soundness leaks closed" milestone is RE-REACHABLE — the NEXT adversarial audit confirms (NOT claimed
+here).** Alpha HELD (attended).
+Next-step ranking: two-phase audit (milestone reconfirmation) → LOW correctness gaps
+(PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS graduates its seed, LIST-ISSORTED) → PB-EVALBASE-SPLIT
+nav-debt → deferred float FDLIBM (chakrit-gated). Pushed.
+
+Prior HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-ARM ✅ LANDED (`345f08b`, 2026-07-13, Phase B).** The sole residual
 HIGH soundness leak Phase A found is closed — a def-body NORMAL FORM (`normalizeDefBodyConjunct`,
 `Kue/EvalBase.lean`) applied BEFORE the closedness gate: a pure-struct-literal `.conj` conjunct is
 SPLICED into its members, a `.disj` conjunct's pure-struct `.conj` arms are MERGED (normalized-to-closed

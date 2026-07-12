@@ -227,10 +227,10 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   **PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS (graduates its `.known-red` seed) / LIST-ISSORTED** —
   cheap, parallel-safe, closes real spec-conformance gaps; then PB-EVALBASE-SPLIT (carve (a)) as
   nav-debt filler. Float feature-completion (F1→F3→F5) leads on completeness but is chakrit-GATED.
-  **Milestone "all soundness leaks closed" is NOT reached — the next audit's adversarial sweep
-  (2026-07-13 Phase A, below) BROKE it: `345f08b` fixed the nested-`.conj` closedness leak only for a
-  `.conj` DEF BODY; a bare-`.disj` def body and a buried-self-ref nested `.conj` both still leak.**
-  See DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL below (HIGH). Test health: BuiltinTests (1759) nearest
+  **Milestone "all soundness leaks closed" is RE-REACHABLE — DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
+  ✅ LANDED (2026-07-13) closed the nested-conj-closedness class across ALL def-body entry paths
+  (bare-`.disj` body + buried-self-ref). The NEXT adversarial audit confirms the milestone (not
+  claimed here).** Test health: BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
 
@@ -276,10 +276,24 @@ disjunction face for free (a distributed `.conj` arm becomes its merged struct).
 disjunction-of-plain-struct-arm controls stay green (regression guards — they already close).
 
 **DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (HIGH soundness — SILENT closedness leak / over-acceptance;
-NEW, 2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). OPEN — MILESTONE NOT substantiated.** The
-`345f08b` normal-form fix closes the nested-`.conj` leak ONLY when the definition body is a `.conj`
-(where `normalizeDefBodyConjunct` runs inside `flattenConjDefRef`'s `| .conj rawCs =>` arm). Two
-def-body shapes bypass that arm and still leak a use-site extra past a parenthesized nested `.conj`:
+2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). ✅ LANDED (2026-07-13).** The nested-conj-closedness
+class is now closed across ALL def-body entry paths. Fix (`Kue/EvalBase.lean`): (a) a bare-`.disj`
+DEFINITION body is routed through the same closedness machinery as a `.conj` body (a `defBodyConjuncts`
+`Option (List Value)` treats a `.disj` def body as the single-conjunct list `[body]`; non-def disj bodies
+keep their standalone path), so `normalizeDefBodyConjunct` merges each pure-struct `.conj` disj arm to a
+CLOSED struct; (b) when the buried-self-ref guard fires for a DEFINITION, it now re-derives closedness
+ORTHOGONALLY — the own struct-literals (flattened out of their `&`-grouping via `flattenConjMembers`,
+self-ref dropped) are closed via the hoisted `closeDefLiteralUnion` and emitted ALONGSIDE the untouched
+unexpanded ref, so the cycle→top VALUE rule is unchanged while closedness is restored. Both wild seeds
+GREEN (`def-closedness-bare-disj-conj-arm`, `def-closedness-buried-selfref-conj`); `ClosednessTests`
+`defflatten_baredisj_*` + `defflatten_buried_selfref_*` reject / select-admit / plain-and-flat-control /
+open-tail-admit both-direction guards; full `check.sh` green, zero L-series/Bug2/closedness/cycle flips;
+cycle-value orthogonality verified (self-conj-cycle, direct/buried/mutual self-ref values unchanged). The
+milestone "all soundness leaks closed" is re-reachable — the NEXT adversarial audit confirms.
+~~OPEN — MILESTONE NOT substantiated.~~ The
+`345f08b` normal-form fix closed the nested-`.conj` leak ONLY when the definition body was a `.conj`
+(where `normalizeDefBodyConjunct` runs inside `flattenConjDefRef`'s `.conj`-body arm). Two
+def-body shapes bypassed that arm and leaked a use-site extra past a parenthesized nested `.conj`:
 - **(a) Bare-`.disj` def body.** `#X: ({b:2} & {d:4}) | {c:3}` · `#X & {z:9}` ⇒ kue emits
   `{y:{b:2,d:4,z:9}}` (exit 0); cue ⊥ (`z: field not allowed`). Same with the nested-`.conj` in the
   SECOND arm. When the def body IS a bare `.disj` (not `struct & disj`), `Field.value field` is

@@ -22632,3 +22632,57 @@ nested-`.conj`-bypass shapes are the only divergences.
 
 No code change this audit (findings → plan.md fix-slice; red seeds captured). Full `check.sh` re-run
 green with the two new quarantined seeds. Alpha HELD (residual open).
+
+---
+
+## Completed Slice: DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL — nested-conj close reaches ALL def-body entry paths (2026-07-13)
+
+Goal: close the residual the `345f08b` normal form did NOT reach — a parenthesized nested `.conj`
+in a closed definition leaking a use-site extra through two def-body entry paths that bypass
+`flattenConjDefRef`'s `.conj`-body arm. cue v0.16.1 bottoms both; kue over-accepted.
+
+### The two residual shapes (both wild seeds, RED→GREEN)
+
+- **(a) Bare-`.disj` def body.** `#X: ({b:2}&{d:4}) | {c:3}` · `#X & {z:9}` — the def body IS a bare
+  `.disj`, so `Field.value field` never entered the `.conj rawCs` arm (it hit the catch-all
+  `| _ => [constraint]`); its nested-`.conj` arm was never merged and leaked z. cue ⊥.
+- **(b) Buried-self-ref nested `.conj`.** `#X: {a:1} & (#X & {b:2})` · `#X & {z:9}` — the buried-self-ref
+  guard returned the body UNEXPANDED (to preserve cycle→top), which also dropped the def's closedness.
+  cue ⊥, closes to `{a,b}`.
+
+### Fix (`Kue/EvalBase.lean`)
+
+- **Entry generalization (a).** The def-body match computes a `defBodyConjuncts : Option (List Value)`:
+  a `.conj` body gives its `rawCs`; a `.disj` body of a DEFINITION gives the single-conjunct list
+  `[body]` (routed through the SAME machinery, so `normalizeDefBodyConjunct` merges each pure-struct
+  `.conj` disj arm to a CLOSED struct); anything else stays `none` → unexpanded `[constraint]`. Non-def
+  disj bodies keep their standalone-resolution path — closedness is a def property, not a value one.
+- **Buried-self-ref closedness re-derivation (b).** When the buried-self-ref guard fires for a
+  DEFINITION, it now re-derives closedness ORTHOGONALLY: the def's own struct-literals — flattened out of
+  their `&`-grouping via `flattenConjMembers`, self-ref dropped by the `isUnionableDefValue` filter — are
+  closed via the hoisted `closeDefLiteralUnion` and emitted ALONGSIDE the untouched unexpanded ref. The
+  ref still flows to the `.refId` eval arm (cycle→top value UNCHANGED); the added closed literal fixes the
+  allowed-set. A regular self-conj-cycle field (`x: (x & int) & 1`) is NOT a definition → keeps the bare
+  ref, cycle path untouched.
+- **DRY.** The inner `closeLiteralUnion` (a `let` closure) is hoisted to top-level `closeDefLiteralUnion`
+  and reused at both the def-body flatten close and the buried-self-ref re-derivation.
+
+### cue v0.16.1 truth table (pinned)
+
+- bare-disj conj-arm `#X: ({b:2}&{d:4})|{c:3}`: `& {z:9}` ⊥; select `{b:2,d:4}` ⇒ `{b,d}`; select
+  `{c:3}` ⇒ `{c}`; conj in 2nd arm ⊥; PLAIN-arm control `{b:2}|{c:3}` ⊥; open-tail arm
+  `({b:2,...}&{d:4})|{c:3}` admits `q`.
+- buried-self-ref `#X: {a:1} & (#X & {b:2})`: `& {z:9}` ⊥; select `{a:1,b:2}` ⇒ `{a,b}`; FLAT control
+  `{a:1} & #X & {b:2}` ⊥; buried-only `(#X & {b:2})` closes `{b}`; deeper `((#X&{b:2})&{e:5})` ⊥.
+
+### Tests + verification
+
+- Both wild seeds graduated (`.known-red` removed): `def-closedness-bare-disj-conj-arm`,
+  `def-closedness-buried-selfref-conj`.
+- `ClosednessTests` (10 new): `defflatten_baredisj_{conjarm_rejects, conjarm_select_conj_admits,
+  conjarm_select_plain_admits, conjarm_second_rejects, plain_control_rejects, conjarm_opentail_admits}`
+  + `defflatten_buried_selfref_{rejects, admits, flat_control_rejects, deep_rejects}`.
+- Full `check.sh` GREEN. Zero L-series/Bug2/closedness/DEF-FLATTEN/SELF-CONJ-CYCLE/LET-CYCLE flips.
+  Cycle-value orthogonality verified: self-conj-cycle field, direct/buried/mutual self-ref VALUES
+  unchanged (mutual-cycle stays the documented Bug2-12 kue-admits divergence; not a regression).
+- No new cue divergence (cue agrees ⊥ on both faces); no new spec gap.

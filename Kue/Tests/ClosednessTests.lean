@@ -690,6 +690,71 @@ theorem defflatten_nestedconj_mixed_ref_stays_open :
       "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3,\n        \"b\": 2,\n        \"q\": 9\n    }\n}\n" = true := by
   native_decide
 
+-- ### DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL — the nested-`.conj` close reaches EVERY def-body entry path.
+--
+-- The `345f08b` normal form ran only inside `flattenConjDefRef`'s `.conj`-body arm. Two def-body shapes
+-- reach the closedness fold by a DIFFERENT exit and leaked a use-site extra past a parenthesized nested
+-- `.conj`: (a) a BARE `.disj` body (`#X: (…) | {c}`) took the catch-all, so its nested-`.conj` arm was
+-- never merged; (b) a BURIED self-ref (`#X: {a} & (#X & {b})`) took the unexpanded-ref exit, dropping
+-- closedness. FIXED by routing a `.disj` DEFINITION body through the same machinery, and by re-deriving
+-- the buried-self-ref case's closedness from its own struct-literals (self-ref drops out). cue v0.16.1
+-- bottoms both faces.
+
+-- RESIDUAL (a) BARE-DISJ reject: the nested-`.conj` arm merges to a CLOSED struct, so `z` bottoms both arms.
+theorem defflatten_baredisj_conjarm_rejects :
+    exportJsonBottoms "#X: ({b: 2} & {d: 4}) | {c: 3}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- RESIDUAL (a) BARE-DISJ select the conj arm (both-direction, admit): `{b:2,d:4}` picks the `{b,d}` arm.
+theorem defflatten_baredisj_conjarm_select_conj_admits :
+    exportJsonMatches "#X: ({b: 2} & {d: 4}) | {c: 3}\nout: #X & {b: 2, d: 4}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- RESIDUAL (a) BARE-DISJ select the plain arm (both-direction, admit): `{c:3}` picks the `{c}` arm.
+theorem defflatten_baredisj_conjarm_select_plain_admits :
+    exportJsonMatches "#X: ({b: 2} & {d: 4}) | {c: 3}\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- RESIDUAL (a) BARE-DISJ conj in the SECOND arm (reject): arm order is irrelevant to the merge.
+theorem defflatten_baredisj_conjarm_second_rejects :
+    exportJsonBottoms "#X: {c: 3} | ({b: 2} & {d: 4})\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- RESIDUAL (a) BARE-DISJ PLAIN control (already correct, must STAY green): plain struct arms close.
+theorem defflatten_baredisj_plain_control_rejects :
+    exportJsonBottoms "#X: {b: 2} | {c: 3}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- RESIDUAL (a) BARE-DISJ open-tail arm (over-close guard, admit): a `...` in the merged conj arm keeps
+-- it OPEN, so `q` is admitted. cue v0.16.1 admits.
+theorem defflatten_baredisj_conjarm_opentail_admits :
+    exportJsonMatches "#X: ({b: 2, ...} & {d: 4}) | {c: 3}\nout: #X & {b: 2, d: 4, q: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- RESIDUAL (b) BURIED-SELFREF reject: `{a} & (#X & {b})` closes to `{a,b}` (self-ref drops out); `z` bottoms.
+theorem defflatten_buried_selfref_rejects :
+    exportJsonBottoms "#X: {a: 1} & (#X & {b: 2})\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- RESIDUAL (b) BURIED-SELFREF admit its own fields (both-direction): `#X` resolves to `{a,b}`.
+theorem defflatten_buried_selfref_admits :
+    exportJsonMatches "#X: {a: 1} & (#X & {b: 2})\nout: #X & {a: 1, b: 2}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- RESIDUAL (b) BURIED-SELFREF FLAT control (already correct, must STAY green): top-level self-ref closes.
+theorem defflatten_buried_selfref_flat_control_rejects :
+    exportJsonBottoms "#X: {a: 1} & #X & {b: 2}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- RESIDUAL (b) BURIED-SELFREF deeper (reject): a triply-grouped self-ref conj still closes to `{a,b,e}`.
+theorem defflatten_buried_selfref_deep_rejects :
+    exportJsonBottoms "#X: {a: 1} & ((#X & {b: 2}) & {e: 5})\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
@@ -697,5 +762,6 @@ theorem defflatten_nestedconj_mixed_ref_stays_open :
 #check @eval_pattern_disjunction_valued_rejects               -- pattern-constraint conformance probe
 #check @defflatten_errorarm_select_admits                     -- DEF-FLATTEN-CLOSEDNESS
 #check @defflatten_nestedconj_mixed_ref_stays_open            -- DEF-CLOSEDNESS-NESTED-CONJ-ARM
+#check @defflatten_buried_selfref_deep_rejects                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
 
 end Kue
