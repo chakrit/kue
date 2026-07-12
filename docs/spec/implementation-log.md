@@ -21683,3 +21683,30 @@ Verdict: SOUND — behavior-preserving, no new findings.
   (explicit `.boundConstraint _ _` arms returning the value), not Value-producing dispatch.
 
 No code change; no `plan.md` findings filed.
+
+## PHASE B AUDIT (2026-07-13b, HEAD `c3f6c01`, batch `8213870..c3f6c01`) — OrderedPrim fit + strategic reconcile
+
+Whole-graph architecture pass over the comparison-retype / interpolation-fix / OrderedPrim batch
+(BINARY-CMP-BYTES, STRING-BYTES-PROBE, BOUND-ORDEREDPRIM). NORMAL cycle (infra rotation not repeated).
+
+Verdict: GRAPH CLEAN, backlog reconciled, next phase RECOMMENDED = float feature-completion (F1→F3→F5).
+
+- **`OrderedPrim` fit CORRECT.** Placed right (with `Prim`/`NumberDomain`/`BoundKind`/`boundConstraint` in
+  `Value.lean`). `Prim`/`OrderedPrim` carrier overlap is refinement, not duplication — mediated by the
+  `ofPrim?`/`toPrim` pair; the ordered-only + numeric-domain-only invariant is now structural. No extraction,
+  no tightening owed.
+- **Reconciliation:** last Phase B (`8213870`) recommended a bytes/string probe + queued BINARY-CMP-BYTES /
+  BOUND-ORDEREDPRIM — ALL executed and landed (`3fd6616`/`e785c67`, `6c9fd69`, `7c8eedc`/`4e469ac`). Queued
+  head cleared. Import graph healthy (`Builtin ↛ Eval`; `Lattice`/`Order` = Value/Regex/StringFormat only);
+  no `Value`-producing `| _ =>` (Value.lean catch-alls all Option/Bool/List probes); EvalBase 2663 (+5),
+  PB-EVALBASE-SPLIT not nearer due.
+- **Two LOW findings filed** (plan): PB-ORDEREDPRIM-COMPARE (optional marginal `OrderedPrim.compare?` wrapper
+  for the 5 bound-layer `.toPrim` sites — `primOrdCompare?` stays `Prim`-typed for the arbitrary-operand
+  binary `<` path) and PB-MKFLOATBOUND-WAIVER (add textBytes-style test-support waiver to test-only
+  `mkFloatBound`; batch with the next Value.lean edit to avoid a dedicated rebuild).
+- **Strategic call:** with no active wrong-value bugs and all soundness clusters closed, float
+  feature-completion (real `unsupportedBuiltin` stdlib holes, F2 kernel already landed) is higher-yield than
+  another probe (probe yield declining: SCOPING=4, bytes/string=1). Fork noted in plan (list-ops /
+  field-modality if a probe is preferred), resolve by leverage.
+
+No code change; two `plan.md` LOW findings filed.

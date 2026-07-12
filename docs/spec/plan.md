@@ -1393,6 +1393,68 @@ catch-all swallows `patternLabel`. Two NEW findings:
   `testdata/wild/` repro to confirm the spec-correct value (cue v0.16.1 cross-check) before fixing — file
   as suspected.
 
+### PHASE B AUDIT (2026-07-13b, HEAD `c3f6c01`, batch `8213870..c3f6c01`) — OrderedPrim fit + strategic reconcile
+
+Whole-graph pass after the comparison-retype / interpolation-fix / OrderedPrim batch (BINARY-CMP-BYTES,
+STRING-BYTES-PROBE, BOUND-ORDEREDPRIM). Infra rotation NOT repeated (done 2026-07-12 Phase B, several
+cycles ago). **Reconciliation:** the last Phase B (`8213870`) recommended (c) a bytes/string probe and
+queued BINARY-CMP-BYTES + BOUND-ORDEREDPRIM — ALL executed and LANDED (`3fd6616`/`e785c67` cmp,
+`6c9fd69` probe, `7c8eedc`/`4e469ac` OrderedPrim). The entire queued head from the last two Phase Bs is
+now cleared. Graph HEALTHY: acyclic, `Builtin ↛ Eval`, `Lattice`/`Order` import only
+`Value`/`Regex`/`StringFormat` (low); no `Value`-producing `| _ =>` (Value.lean catch-alls all
+Option/Bool/List probes); EvalBase 2663 (+5 from 2658 — the batch was Value/Lattice/EvalOps/Parse, NOT
+EvalBase, so PB-EVALBASE-SPLIT is NOT nearer due).
+
+- **`OrderedPrim` architectural fit — CORRECT, no tightening owed.** Placed right (clustered with
+  `Prim`/`NumberDomain`/`BoundKind`/`boundConstraint` in `Value.lean`). The `Prim`/`OrderedPrim` carrier
+  overlap (int/float/string/bytes in both) is NOT duplication — `OrderedPrim` is a genuine **refinement**
+  (ordered subset, excludes null/bool; folds `NumberDomain` into the numeric arms only), and carrier
+  overlap is inherent to a Lean refinement type with no subtyping. The refinement/forgetful pair
+  `ofPrim?`/`toPrim` is the single trust boundary; the invariant (no null/bool operand, no domain-bearing
+  string/bytes bound) is now structural. This is the illegal-states-unrepresentable win, not debt.
+- **PB-ORDEREDPRIM-COMPARE (VERY LOW, optional — marginal DRY, NOT an illegal-states win). OPEN.** The 5
+  bound-layer compare sites (`tightenSameSide`/`rangeFeasible`/`meetTwoBounds` ×2 + join canonical-order,
+  all in `Lattice`) do `.toPrim` then `primOrdCompare?`. A thin `OrderedPrim.compare? (l r) := primOrdCompare?
+  l.toPrim r.toPrim` would dedup the `.toPrim` and narrow the `none` meaning to family-mismatch-only at the
+  bound boundary. **`primOrdCompare?` itself STAYS `Prim`-typed** — the binary `<`/`<=` path
+  (`evalPrimitiveOrdering`) genuinely compares arbitrary prims incl. null/bool and RELIES on `none ⇒ ⊥`;
+  retyping it to `OrderedPrim` there is a category error (comparison, not bound-building). So this is a
+  marginal wrapper, not a structural tightening (`none` still exists) — file below the LOW tail, do NOT
+  prioritize. There is NO other latent ordered-only-invariant site to migrate: the binary-comparison path
+  is arbitrary-operand by design, not a guarded ordered-only invariant.
+- **PB-MKFLOATBOUND-WAIVER (LOW cosmetic — convention drift). OPEN.** `mkFloatBound` (`Value.lean:473`) is
+  test-only (core builds float bounds via `OrderedPrim.ofPrim?` on an evaluated prim; only `Kue/Tests/*`
+  call it) but lacks the AUD-B4-style test-support-in-core waiver comment its sibling `textBytes` carries —
+  a future false-positive dead-code-deletion hazard. Add the one-line waiver; BATCH it with the next slice
+  that already touches `Value.lean` (a comment-only edit to a leaf module forces a full rebuild — not worth
+  a dedicated cut).
+
+**Reconciled ranked HEAD (all soundness clusters CLOSED, NO active wrong-value bugs, bound-operand type
+fully tightened — philosophy: spec-COMPLETENESS now leads, no correctness debt outstanding):**
+1. **Float feature-completion — F1 (`math.Log1p`/`Expm1`) → F3 (trig) → F5 (template-float/`Float64bits`)
+   [RECOMMENDED next phase].** Real stdlib surface currently `unsupportedBuiltin`; the F2 IEEE `BinFloat`
+   kernel is LANDED and its SOLE justification was to unblock these — leaving it unwired is a half-finished
+   seam. F1 is small and exercises the kernel end-to-end (validates the F2 investment). See § "Phase-of-work"
+   below for the float-vs-probe reasoning.
+2. **PATTERN-LABEL-ALIAS-SCALAR** / **UNREFERENCED-ALIAS** (LOW correctness gaps) → **DEF-FLATTEN-CLOSEDNESS-DISJ**
+   (LOW, needs a `wild/` repro FIRST).
+3. **PB-EVALBASE-SPLIT** (`EvalScan.lean` first) / **PB-FIXTUREPORTS-SPLIT** — MED nav-debt, cohesion filler.
+4. **LOW tail:** PA-ESC-2/SUB-4/TT-5, PB-VERSION-CONST/CHECK-COMMENT/FOLD-PLACEMENT/PRIM-CATCHALL/RELEASE-3/
+   TESTORG-4, + new PB-ORDEREDPRIM-COMPARE / PB-MKFLOATBOUND-WAIVER.
+
+**Phase-of-work recommendation → (a) FLOAT feature-completion, NOT another probe.** Rationale: (1) with
+NO active wrong-value bugs and all soundness clusters closed, completeness (closing `unsupportedBuiltin`
+holes) is the more concrete goal-advancing path than speculative probing — the stated goal is correctness
++ completeness across the WHOLE stdlib surface. (2) Probe yield is DECLINING as core surfaces saturate:
+SCOPING (07-12) = 4 defects, bytes/string (07-13) = 1 corner defect. The heavily-measured value-semantics
+surfaces (structs, disjunctions, comprehensions, closedness, scoping, operand-typing, bytes/string,
+structural-cycles) are largely pinned. (3) The F2 kernel is landed leverage sitting idle — F1 wires it for
+~1 slice. **Fork note (resolve by leverage, do NOT stop to ask):** if a probe IS preferred, the
+least-measured surface is list-operations detail (slicing/concat/comprehension interplay) or field-modality
+composition (`?`/`!`/`_`/dynamic) — NOT bytes/string (just probed), disjunction/default (swept 07-04), or
+number-formatting/precision (F-series saturated). But float is higher-yield: concrete, unblocked, currently
+erroring.
+
 ### PHASE B AUDIT (2026-07-13, HEAD `42e5fad`, batch `6b781a8..728c930`) — new cycle/frame family placement + reconcile
 
 Whole-graph pass after the reference-cycle→top batch (SELF-SELECT-CYCLE-CROSSFRAME, RESOLVE-DEDUP-
