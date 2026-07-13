@@ -22842,3 +22842,65 @@ its top-level embedding is a `.disj`, not a `.comprehension`, so it keeps the fl
 removed). `ClosednessTests` gains 14 `native_decide` theorems (`defcomp_conjunct_*`,
 `defcomp_alone_control_*`) pinning the full truth table + both-direction + open-tail + non-def controls.
 Full `check.sh` green; zero L-series / Bug2 / closedness / DEF-FLATTEN / cycle flips.
+
+---
+
+## Audit Slice: Phase A MILESTONE VERDICT — `8224c89..ef55f53` (DEF-BODY-CLOSEDNESS-UNIFY + comprehension)
+
+Phase A code-quality audit + milestone-verdict sweep over the two closedness slices
+`03ca6b4` (DEF-BODY-CLOSEDNESS-UNIFY) and `ef55f53` (DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM).
+No code change; findings folded into `plan.md`. (Audit slices get a log entry — CLAUDE.md
+§ Recurring misalignments.)
+
+**Last-audit reconciliation (all landed, verified).** The `8224c89` Phase A filed
+DEF-CLOSEDNESS-REREF-DROP → `03ca6b4` and DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM →
+`ef55f53`; both committed, both wild seeds graduated (`.known-red` removed from
+`def-closedness-reref-drop/` and `def-comprehension-conjunct-usesite-bottom/`; only
+`unreferenced-value-alias` + `byte-literal-interpolation` remain quarantined). Theorem
+guards present (`defflatten_reref_*`, `defcomp_*`). OPEN backlog intact (PATTERN-LABEL-ALIAS-SCALAR,
+UNREFERENCED-ALIAS, LIST-ISSORTED, DISJ-NESTED-ERROR-ARM-AMBIGUOUS, PB-VERSION-CONST,
+PB-EVALBASE-SPLIT, deferred float). Tree clean, HEAD == upstream.
+
+**`03ca6b4` provenance-dispatch completeness.** Else-branch shapes constructed and run
+against cue v0.16.1 + kue:
+- `#X: #Y` (def→def ref) ⇒ CLOSES (kue ⊥). ✓
+- `#X: #Foo.bar` (selector into a def) ⇒ CLOSES. ✓
+- `#X: foo`, `foo: #Y` (transitive to a def) ⇒ CLOSES. ✓
+- `#X: foo`, `foo: {a:1}` (ref to NON-def struct) ⇒ LEAKS (kue admits `z`). ✗
+- `#X: foo.bar` (selector into NON-def struct) ⇒ LEAKS. ✗
+- `#X: list[0]` (index into a list of struct) ⇒ LEAKS. ✗
+- `#X: bar`, `bar: foo`, `foo: {a:1}` (chain through non-defs) ⇒ LEAKS. ✗
+- Over-close controls (must stay OPEN): `foo: {a:1, ...}` → `#X: foo` ADMITS `z` ✓;
+  `#X: foo` · `#X & {a:1}` (own field) ADMITS ✓. No false rejection observed.
+Termination of the routed recursion holds (fuel decrement + `expanding` cycle guard,
+`Kue/EvalBase.lean` ~2111/2122/2293). The struct/structComp→`none` self-close boundary is
+correct for the closing direction (a legit-recursive struct stays correct), but is
+precisely the source of the leak on the INDIRECT path: a non-def referent's `.struct` body
+returns `none` in its own flatten → not closed → `close` false at the referrer → OPEN inline.
+
+**`ef55f53` verdict — clean.** `mergeCompDefBody` closes the comprehension+literal def body
+jointly; truth-table both-direction guards (14 `defcomp_*`) match cue across ADMIT (`& {}`,
+own field, comp output, multi-field, empty-source, order-independent), REJECT (extra,
+comp-field conflict, comp/literal overlap), and OPEN-tail. Bug2-9 exclusion is precise
+(the `.comprehension`-specific predicate; the narrowing shape's top embedding is a `.disj`).
+No over-close or new over-rejection found.
+
+**MILESTONE VERDICT: NOT substantiated — one residual, DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH
+soundness, over-acceptance).** The def-body-closedness entry-path leak CLASS is only HALF
+closed. The provenance dispatch routes an indirect body to the sound side, but closedness is
+DERIVED only when the referent flatten-resolves to a definition; a def body indirecting to a
+NON-definition struct leaves `close` false and inlines OPEN, leaking a use-site extra. This
+is a sibling of the just-fixed DEF-CLOSEDNESS-REREF-DROP (which covered only the def-referent
+sub-case), pre-existing rather than a regression (the reref fix never reached the non-def
+referent). Captured as quarantined red fixture `testdata/wild/def-closedness-nondef-referent/`
+and filed HIGH in `plan.md`. Repro: `foo: {a:1}` · `#X: foo` · `#X & {z:9}` ⇒ kue `{a,z}`,
+cue `y.z: field not allowed`.
+
+**Adversarial cases run beyond the closedness residual** (no further leak found in this
+sweep): comprehension+literal joint close (ef55f53 truth table), open-tail admit,
+own-field admit, def→def / def→selector-into-def / transitive-to-def all close. The
+remaining surfaces (bounds, arithmetic, list-ops, disjunction defaults) were not
+exhaustively re-swept — the closedness residual halts the milestone regardless, so the
+verdict is BREAK, and the milestone re-audit reruns after DEF-CLOSEDNESS-NONDEF-REFERENT lands.
+
+Alpha HELD (audit only).

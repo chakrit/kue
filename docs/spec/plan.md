@@ -234,13 +234,42 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   bare-`.disj`/buried-self-ref patches. **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED
   (2026-07-13)** — the orthogonal over-REJECTION is closed too (`mergeCompDefBody` merges a
   comprehension+literal def body into ONE normalized `.structComp` that closes jointly, both-direction
-  guards green). With both landed, the milestone "all soundness leaks closed" is re-reachable — the NEXT
-  adversarial audit confirms (not claimed here). Next-step ranking: milestone-reconfirmation audit →
-  the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED) →
-  PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5).** Test health:
+  guards green).** **MILESTONE VERDICT (2026-07-13 Phase A audit): NOT substantiated — one residual
+  found, `DEF-CLOSEDNESS-NONDEF-REFERENT` (below). The def-body-closedness entry-path leak CLASS is
+  only HALF closed: the DEF-BODY-CLOSEDNESS-UNIFY provenance dispatch routes an indirect body to the
+  sound side, but closedness is only DERIVED when the referent flatten-resolves to a definition. A
+  def body indirecting to a NON-definition struct (`#X: foo`, foo a plain struct) leaves `close`
+  false and leaks a use-site extra. Next-step ranking: DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH
+  soundness) → re-audit milestone → the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR /
+  UNREFERENCED-ALIAS / LIST-ISSORTED) → PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5).** Test health:
   BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
+
+**DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
+2026-07-13 Phase A MILESTONE-VERDICT audit). OPEN — the residual that BREAKS the "all soundness
+leaks closed" milestone.** A definition whose body INDIRECTS (bare `.refId`, `.selector`, `.index`)
+to a NON-definition struct leaks closedness: kue admits a use-site extra field where cue closes.
+`foo: {a:1}` · `#X: foo` · `#X & {z:9}` ⇒ kue `{a,z}` (`kue export` emits `z:9`), cue ⊥ (`y.z:
+field not allowed`). Also `#X: foo.bar`, `#X: list[0]`, and chains through non-def bindings
+(`#X: bar`, `bar: foo`, `foo: {a:1}`). Wild fixture `testdata/wild/def-closedness-nondef-referent/`
+(quarantined `.known-red`). **Root:** DEF-BODY-CLOSEDNESS-UNIFY routes an indirect def body to the
+sound side (`| body => some [body]`), but the downstream `close` predicate
+(`isSelfRef || inCycle || ownLiteralUnion`, `Kue/EvalBase.lean` ~2291) only fires when the referent
+flatten-DERIVES to a closed def. A non-def referent (`.struct`/`.structComp` body → `none` in its
+own flatten → not closed) yields `close` false, so the body inlines OPEN and the definition's own
+closedness is dropped. The DEF-CLOSEDNESS-REREF-DROP fix closed the DEF-referent sub-case (`#X: #Y`,
+#Y a def — referent flatten-closes, `close` fires, kue ⊥ correctly) but left this non-def-referent
+sibling open — the provenance-dispatch comment's "routing it through is inert" assumption is FALSE
+for a non-def referent that ought to carry definition closedness. Internally inconsistent (def-referent
+closes, non-def-referent leaks), so a kue bug regardless of cue — spec basis: the value of a definition
+is closed however reached. **Fix direction:** when a definition body indirects to a resolved non-def
+struct value, close over that value's field set at the flatten (the definition-closedness the
+indirection must carry), NOT only when the referent is itself a flatten-closed def. Likely a `close`
+extension: a definition body that resolves (through ref/selector/index) to a concrete struct closes
+over its fields, whether or not the referent slot is a definition. Verify no over-close of a
+legitimately-open referent (`foo: {a:1, ...}` → `#X: foo` STAYS open — cue admits) and no
+regression to the def-referent path.
 
 **DEF-CLOSEDNESS-NESTED-CONJ-ARM (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
 2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). ✅ LANDED (2026-07-13, Phase B — normal-form
