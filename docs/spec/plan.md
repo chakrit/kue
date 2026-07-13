@@ -227,10 +227,18 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   **PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS (graduates its `.known-red` seed) / LIST-ISSORTED** —
   cheap, parallel-safe, closes real spec-conformance gaps; then PB-EVALBASE-SPLIT (carve (a)) as
   nav-debt filler. Float feature-completion (F1→F3→F5) leads on completeness but is chakrit-GATED.
-  **Milestone "all soundness leaks closed" is RE-REACHABLE — DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
-  ✅ LANDED (2026-07-13) closed the nested-conj-closedness class across ALL def-body entry paths
-  (bare-`.disj` body + buried-self-ref). The NEXT adversarial audit confirms the milestone (not
-  claimed here).** Test health: BuiltinTests (1759) nearest
+  **DEF-BODY-CLOSEDNESS-UNIFY ✅ LANDED (2026-07-13) — the def-body closedness entry-path LEAK CLASS
+  is now closed BY CONSTRUCTION: `defBodyConjuncts` routes every INDIRECT/COMPOSITIONAL def body
+  (`.disj`/`.refId`/future indirection) through ONE normalization+flatten point; a new entry path
+  cannot bypass. This landed DEF-CLOSEDNESS-REREF-DROP (3rd residual) and subsumes the per-arm
+  bare-`.disj`/buried-self-ref patches. The milestone "all soundness leaks closed" is re-reachable
+  EXCEPT the orthogonal DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM (HIGH over-REJECTION, a comprehension
+  `.conj` body — different mechanism, still OPEN; NOT a closedness leak). Do NOT claim "all leaks
+  closed" while it is open. Next-step ranking: DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM →
+  milestone-reconfirmation audit → the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR /
+  UNREFERENCED-ALIAS / LIST-ISSORTED) → PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5). The NEXT
+  adversarial audit confirms the def-body-closedness milestone (not claimed here).** Test health:
+  BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
 
@@ -326,7 +334,26 @@ struct-comp, scalar-embed, bounds chains, interpolation, bytes, big-int, div-by-
 match cue v0.16.1), so these two shapes are the SOLE remaining Phase-A residual.
 
 **DEF-CLOSEDNESS-REREF-DROP (HIGH soundness — SILENT closedness leak / over-acceptance; 2026-07-13
-Phase A MILESTONE-CONFIRMATION audit, 3rd attempt). OPEN — MILESTONE NOT substantiated.** The THIRD
+Phase A MILESTONE-CONFIRMATION audit, 3rd attempt). ✅ LANDED (2026-07-13, DEF-BODY-CLOSEDNESS-UNIFY —
+the SINGLE-FLOW-POINT structural fix that closes the entry-path leak CLASS by construction).** The
+durable fix routes ALL def-body closedness through ONE point: `flattenConjDefRef`'s `defBodyConjuncts`
+now dispatches by CLOSEDNESS PROVENANCE, not per-top-constructor patching. A struct-shaped body
+(`.struct`/`.structComp`) SELF-CLOSES via standalone eval (its closedness is intrinsic), so it keeps
+the standalone path; EVERY OTHER definition body — `.disj`, `.refId`, and any future indirection
+(`.selector`/`.builtinCall`) — is INDIRECT/COMPOSITIONAL, its closedness flatten-DERIVED, so it
+DEFAULTS to `some [body]` and flows through normalization + the recursive `flattenConjDefRef` flatten.
+A bare `.refId` def body thus recurses into its referent's OWN flatten and carries the referent's
+derived closedness — the `#X: #Y` leak. The `| _ => none` arm that silently dropped a non-`.conj`
+def body's derived closedness — the recurring bug the three prior per-arm patches kept relocating — is
+DELETED; a new indirection constructor cannot bypass normalization by construction (it hits the
+routed default, the SOUND/closed-preserving side). `ClosednessTests` `defflatten_reref_*` (nested-conj
++ split-literal reject / multi-hop reject / disjbody reject / admit-own / single-struct control /
+open-tail admit / non-def hidden-ref admit) pin per-entry-path completeness + both-direction guards;
+seed `def-closedness-reref-drop` graduated; full `check.sh` green, zero L-series / Bug2 / closedness /
+cycle-value flips (self-conj-cycle, direct/buried/mutual self-ref VALUES unchanged — closedness is
+orthogonal to the cycle→top value rule). NOTE: this does NOT close
+DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM below (a comprehension-CONJUNCT `.conj` body — an
+over-REJECTION, a different mechanism, still OPEN). ~~OPEN — MILESTONE NOT substantiated.~~ The THIRD
 def-body entry-path residual, same class the batch was closing. When a definition's closedness is
 FLATTEN-DERIVED by `flattenConjDefRef` (nested-conj close, split-literal union close) rather than
 intrinsic to a single struct literal, RE-REFERENCING that def through another def body that is a

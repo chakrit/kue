@@ -113,6 +113,22 @@ effectful merge-sort helpers, the **core-force `mutual` block** (never split —
 `termination_by (fuel, tag, length)` ordering can't cross a module boundary), and the
 `runEval`/`evalStructRefs*` entry wrappers.
 
+**Def-body closedness — one flow point (invariant).** All closedness a definition body
+carries at a use-site meet flows through a SINGLE entry: `flattenConjDefRef`'s
+`defBodyConjuncts` dispatch (`EvalBase.lean`). It splits by closedness PROVENANCE, not
+per-top-constructor: a struct-shaped body (`.struct`/`.structComp`) SELF-CLOSES via
+standalone eval (intrinsic closedness) and keeps the standalone path; every OTHER
+definition body — `.disj`, `.refId`, and any future indirection (`.selector`,
+`.builtinCall`) — is INDIRECT/COMPOSITIONAL, its closedness flatten-DERIVED, so it
+DEFAULTS to `some [body]` and flows through `normalizeDefBodyConjunct` + the recursive
+flatten (so a bare `.refId` def body recurses into its referent's own flatten and carries
+the referent's derived closedness). The invariant: there is no `| _ => none` arm that
+drops a definition body's derived closedness — the routed default is the sound
+(closed-preserving) side, so a new body constructor cannot bypass normalization by
+construction. Three successive audits found one leaking entry path each (bare-`.disj`,
+buried-self-ref, bare-`.refId`) under the old per-arm dispatch; the single flow point
+closes the class.
+
 `Eval.lean` resolves references, applies constraints, distributes meets, evaluates
 expressions, and handles reference cycles explicitly with a visited-binding path and
 bounded fuel (host-language recursion failure is not acceptable cycle semantics),

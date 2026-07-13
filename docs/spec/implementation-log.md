@@ -22742,3 +22742,60 @@ through (design-out the per-arm-bypass class), so no new body shape can leak.
 
 No code change this audit (findings → plan.md fix-slices; two red seeds captured + quarantined). Full
 `check.sh` re-run green with the two new quarantined seeds. Alpha HELD (residual open).
+
+---
+
+## Completed Slice: DEF-BODY-CLOSEDNESS-UNIFY — one flow point for def-body closedness (2026-07-13)
+
+Closed **DEF-CLOSEDNESS-REREF-DROP** (the 3rd def-body entry-path closedness leak) and, with it, the
+entry-path leak CLASS the three prior audits kept relocating — by unifying `flattenConjDefRef`'s
+`defBodyConjuncts` dispatch into a SINGLE flow point instead of patching one leaking top-constructor
+arm at a time.
+
+### The leak
+
+`#Y: ({b:2} & {d:4})` · `#X: #Y` · `y: #X & {z:9}` leaked `{y:{b:2,d:4,z:9}}` (cue v0.16.1 ⊥,
+`y.z: field not allowed`). `#Y`'s closedness is FLATTEN-DERIVED (a nested `.conj` of struct literals,
+or a split `{b:2} & {d:4}`); re-referencing it through a bare-`.refId` def body (`#X: #Y`) took
+`defBodyConjuncts`'s `| _ => none` unexpanded exit, so `#X` resolved to `#Y`'s materialized VALUE
+without the derived closedness. Same for the split-literal face.
+
+### The fix — dispatch by closedness PROVENANCE, not top constructor
+
+`defBodyConjuncts` (`Kue/EvalBase.lean`) now:
+- `.conj rawCs => some rawCs` — split to conjuncts (unchanged; def and non-def).
+- `.struct .. | .structComp .. => none` — a struct-shaped body SELF-CLOSES via standalone eval
+  (closedness intrinsic to the literal). Routing it through the derived-closedness machinery would
+  re-close it and misfire the buried-self-ref detector on a legitimately-recursive struct
+  (`{kids: [...#T]}`, `{vis: #name}`) — the regression that proved struct bodies must stay standalone.
+- `body => if isDefinition then some [body] else none` — EVERY OTHER definition body (`.disj`,
+  `.refId`, and any future indirection `.selector`/`.builtinCall`) is INDIRECT/COMPOSITIONAL, its
+  closedness flatten-DERIVED, so it DEFAULTS to the routed side and flows through
+  `normalizeDefBodyConjunct` + the recursive `flattenConjDefRef` flatten. A bare `.refId` def body
+  thus recurses into its referent's own flatten and carries the referent's derived closedness.
+
+The `| _ => none` arm that silently dropped a non-`.conj` def body's derived closedness — the bug the
+prior bare-`.disj`/buried-self-ref/`.refId` patches each relocated — is DELETED. The routed default is
+the SOUND (closed-preserving) side, so a new body constructor cannot bypass normalization by
+construction. This subsumes the two per-arm patches from DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (the
+bare-`.disj` `some [body]` special-case and the buried-self-ref branch remain, now reached through the
+unified default rather than a dedicated arm).
+
+### Completeness + guards
+
+`ClosednessTests` `defflatten_reref_*`: nested-conj reject, split-literal reject, admit-own (both
+direction), MULTI-HOP reject (transitive propagation through a chain of `.refId` defs), disjbody-reref
+reject, single-struct-literal-reref control (intrinsic close, must stay reject), open-tail admit
+(over-close guard), non-def hidden-ref admit (closedness is def-only). Seed
+`testdata/wild/def-closedness-reref-drop/` graduated (`.known-red` removed). cue v0.16.1 cross-checked:
+bottoms every reject face, admits every admit face.
+
+Cycle-value orthogonality VERIFIED unchanged: `x: (x&int)&1 ⇒ 1`; direct self-ref def
+`#X: #X & {a:1}` · `#X & {b:2}` ⇒ ⊥ (closes); mutual `#A: #B & {a}`, `#B: #A & {b}` · `#A & {c}` ⇒ ⊥.
+Full `check.sh` green; zero L-series / Bug2 / closedness / cycle flips.
+
+### Still OPEN (do NOT claim "all leaks closed")
+
+**DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM** (HIGH over-REJECTION) is untouched — a comprehension
+`.conj` def body over-rejects on any use-site unify; a different mechanism (not a closedness leak).
+The def-body-closedness milestone is re-reachable EXCEPT this; the next adversarial audit confirms.

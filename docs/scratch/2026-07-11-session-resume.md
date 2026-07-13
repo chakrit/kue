@@ -3,7 +3,27 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL ✅ LANDED (2026-07-13).** The nested-conj-closedness class is
+HEAD: **DEF-BODY-CLOSEDNESS-UNIFY ✅ LANDED (2026-07-13).** Def-body closedness is now routed through ONE
+flow point → the entry-path leak CLASS is closed BY CONSTRUCTION. `flattenConjDefRef`'s `defBodyConjuncts`
+(`Kue/EvalBase.lean`) dispatches by closedness PROVENANCE, not per-top-constructor: a struct-shaped body
+(`.struct`/`.structComp`) SELF-CLOSES standalone (kept off the machinery — routing it re-closes /
+misfires the buried-self-ref detector on recursive structs); EVERY OTHER def body (`.disj`, `.refId`,
+future `.selector`/`.builtinCall` indirection) DEFAULTS to `some [body]` and flows through
+normalization + the recursive flatten, so a bare `.refId` def body carries its referent's DERIVED
+closedness. The `| _ => none` that silently dropped derived closedness — the bug three prior audits kept
+relocating — is DELETED; the routed default is the SOUND side, so a new body constructor cannot bypass.
+Landed DEF-CLOSEDNESS-REREF-DROP (3rd residual): `#Y:{b}&{d}` · `#X:#Y` · `#X&{z}` ⇒ ⊥ (was leaking z).
+Seed graduated; 8 `ClosednessTests` `defflatten_reref_*` (per-entry-path completeness incl. multi-hop +
+disjbody + both-direction + non-def + open-tail guards); cue v0.16.1 cross-checked; `check.sh` GREEN;
+zero L-series/Bug2/closedness flips; cycle-value orthogonality verified unchanged. **The def-body-closedness
+milestone "all soundness leaks closed" is RE-REACHABLE EXCEPT the orthogonal
+DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM (HIGH over-REJECTION, comprehension `.conj` body — different
+mechanism, STILL OPEN). Do NOT claim "all leaks closed."** Alpha HELD (attended). Pushed.
+Next-step ranking: **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM** → milestone-reconfirmation audit → LOW
+correctness gaps (PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS graduates its seed, LIST-ISSORTED) →
+PB-EVALBASE-SPLIT nav-debt → deferred float FDLIBM (chakrit-gated).
+
+Prior HEAD: **DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL ✅ LANDED (2026-07-13).** The nested-conj-closedness class is
 now closed across ALL def-body entry paths — the two shapes the `345f08b` normal form did not reach are
 fixed (`Kue/EvalBase.lean`): (a) a bare-`.disj` DEFINITION body is routed through the same closedness
 machinery as a `.conj` body (a `defBodyConjuncts` option treats a `.disj` def body as `[body]`), so each

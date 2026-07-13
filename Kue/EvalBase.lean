@@ -2088,18 +2088,37 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
         | frame :: _ =>
             match nthField id.index.val frame.snd with
             | some field =>
-                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL (a): a DEFINITION body that is a BARE `.disj`
-                -- (`#X: (…) | {c}`, the disjunction IS the whole body) reaches the closedness fold
-                -- by a DIFFERENT exit than the `.conj`-conjunct path — via the catch-all — so its
-                -- nested-`.conj` arm is never merged and a use-site extra leaks. Route it through
-                -- the same machinery as a single-conjunct body, so `normalizeDefBodyConjunct` merges
-                -- each pure-struct `.conj` arm to a CLOSED struct. Non-def disj bodies keep their
-                -- standalone-resolution path (closedness is a def property, not a value one).
+                -- SINGLE FLOW POINT for def-body closedness. Every DEFINITION body flows through
+                -- the closedness machinery: a `.conj` splits to its conjuncts, and EVERY other body
+                -- shape (`.disj`, `.refId`, `.struct`, `.structComp`, `.builtinCall`, scalar, …)
+                -- becomes a single-conjunct list `[body]`. A body shape that carries no closedness
+                -- (a scalar, a bare non-self `.refId` whose referent isn't flatten-closed) stays a
+                -- fixed point of the flatten below (`close` false ⇒ it flattens to itself), so
+                -- routing it through is inert; but a `.refId` to a FLATTEN-DERIVED-closed def
+                -- (`#X: #Y`, `#Y: {b}&{d}`) now recurses into the referent's own flatten and carries
+                -- its derived closedness — the entry-path leak the per-arm dispatch kept relocating.
+                -- The `| _ => none` that silently dropped closedness for a non-`.conj` def body IS
+                -- the bug class; defaulting a definition to `some [body]` (the closed-preserving
+                -- side) designs it out — a new body constructor cannot bypass normalization. Only a
+                -- NON-definition non-`.conj` body gets `none` (closedness is a def-only property; it
+                -- keeps its standalone-resolution path).
                 let defBodyConjuncts : Option (List Value) :=
                   match Field.value field with
                   | .conj rawCs => some rawCs
-                  | .disj _ => if field.fieldClass.isDefinition then some [Field.value field] else none
-                  | _ => none
+                  -- A struct-shaped body is ALREADY its own closed form — standalone eval closes a
+                  -- lone struct literal / comprehension def. Routing it through the derived-closedness
+                  -- machinery would re-close it and misfire the buried-self-ref detector on a
+                  -- legitimately-recursive struct (`{kids: [...#T]}`, `{vis: #name}`), so it keeps
+                  -- its standalone-resolution path.
+                  | .struct .. | .structComp .. => none
+                  -- Every OTHER definition body is an INDIRECT / COMPOSITIONAL shape whose closedness
+                  -- is flatten-DERIVED: `.disj` distributes-and-closes per arm, and `.refId` (and any
+                  -- future indirection — `.selector`, `.builtinCall` to a flatten-closed referent)
+                  -- must recurse into the referent's own flatten to carry its derived closedness.
+                  -- Defaulting to the routed (closedness-preserving) side designs out the entry-path
+                  -- leak class: the `| _ => none` that silently dropped a bare-`.refId` body's derived
+                  -- closedness IS the bug, and a new indirection constructor now cannot bypass it.
+                  | body => if field.fieldClass.isDefinition then some [body] else none
                 match defBodyConjuncts with
                 | none => [constraint]
                 | some rawCs =>

@@ -755,6 +755,66 @@ theorem defflatten_buried_selfref_deep_rejects :
     exportJsonBottoms "#X: {a: 1} & ((#X & {b: 2}) & {e: 5})\ny: #X & {z: 9}\n" = true := by
   native_decide
 
+-- ### DEF-BODY-CLOSEDNESS-UNIFY — one flow point: EVERY def-body entry path carries closedness.
+--
+-- `flattenConjDefRef`'s `defBodyConjuncts` dispatched per top constructor and dropped closedness on
+-- the `| _ => none` arm. Each of THREE audits found a new entry path leaking a use-site extra: a
+-- bare-`.disj` body, a buried self-ref, and now a bare-`.refId` body (`#X: #Y` re-referencing a
+-- FLATTEN-DERIVED-closed def). The fix routes every INDIRECT/COMPOSITIONAL def body through the ONE
+-- normalization+flatten point (`.disj`/`.refId`/… default to `some [body]`); a struct-shaped body
+-- self-closes standalone. A `.refId` now recurses into its referent's own flatten, carrying the
+-- referent's derived closedness — so a new indirection constructor cannot bypass by construction.
+-- cue v0.16.1 bottoms every reject face; closedness is a def-only property (a regular-field ref
+-- stays open).
+
+-- REREF nested-conj face (reject): `#Y: {b}&{d}` derives closedness at flatten; `#X: #Y` propagates
+-- it, so a use-site `z` bottoms. THE leak this slice closed.
+theorem defflatten_reref_nestedconj_rejects :
+    exportJsonBottoms "#Y: ({b: 2} & {d: 4})\n#X: #Y\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- REREF split-literal face (reject): `#Y: {b} & {d}` (top-level `.conj` of two literals) re-referenced.
+theorem defflatten_reref_splitliteral_rejects :
+    exportJsonBottoms "#Y: {b: 2} & {d: 4}\n#X: #Y\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- REREF admit own fields (both-direction): `#X` inherits `#Y`'s closed `{b,d}`; declaring them is ok.
+theorem defflatten_reref_admits_own :
+    exportJsonMatches "#Y: {b: 2} & {d: 4}\n#X: #Y\nout: #X & {b: 2, d: 4}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4\n    }\n}\n" = true := by
+  native_decide
+
+-- REREF MULTI-HOP (reject): closedness propagates transitively through a chain of bare-`.refId` defs.
+theorem defflatten_reref_multihop_rejects :
+    exportJsonBottoms "#Y: {b: 2} & {d: 4}\n#Z: #Y\n#X: #Z\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- REREF of a bare-`.disj` def body (reject): the referent's distributed-and-closed arms carry through.
+theorem defflatten_reref_disjbody_rejects :
+    exportJsonBottoms "#Y: ({b: 2} & {d: 4}) | {c: 3}\n#X: #Y\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- REREF CONTROL single-struct-literal (already closed; must STAY reject): closedness intrinsic to the
+-- struct, so the re-ref rejects even without derived-closedness propagation.
+theorem defflatten_reref_singlestruct_control_rejects :
+    exportJsonBottoms "#Y: {b: 2, d: 4}\n#X: #Y\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- REREF open-tail (over-close guard, admit): a `...` in the referent keeps the def OPEN through the
+-- re-ref, so a use-site extra `q` is ADMITTED. cue v0.16.1 admits.
+theorem defflatten_reref_opentail_admits :
+    exportJsonMatches "#Y: {b: 2, ...}\n#X: #Y\nout: #X & {q: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"q\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- REREF NON-DEFINITION control (closedness is def-only, admit): re-referencing a REGULAR (hidden)
+-- field (`_X: _Y`, `_Y: {b}&{d}`) carries no closedness, so a use-site extra is ADMITTED. cue v0.16.1
+-- admits. Hidden so only `out` exports; hidden ≠ definition, so it stays open.
+theorem defflatten_reref_regular_field_admits :
+    exportJsonMatches "_Y: {b: 2} & {d: 4}\n_X: _Y\nout: _X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
@@ -763,5 +823,6 @@ theorem defflatten_buried_selfref_deep_rejects :
 #check @defflatten_errorarm_select_admits                     -- DEF-FLATTEN-CLOSEDNESS
 #check @defflatten_nestedconj_mixed_ref_stays_open            -- DEF-CLOSEDNESS-NESTED-CONJ-ARM
 #check @defflatten_buried_selfref_deep_rejects                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
+#check @defflatten_reref_regular_field_admits                 -- DEF-BODY-CLOSEDNESS-UNIFY
 
 end Kue
