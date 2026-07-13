@@ -23057,3 +23057,78 @@ in `testdata/wild/export-error-bottom-precedence` (`.known-red`) and filed in th
 
 Alpha HELD (attended slice; milestone re-reachable but NOT claimed here — a fresh full verdict sweep
 owns that).
+
+---
+
+## Audit (FINAL Phase A — MILESTONE VERDICT on the closedness campaign, HEAD `8b19318`)
+
+Per `docs/guides/slice-loop.md` § Phase A. The decisive verdict on whether the `8b19318`
+fold (`resolveDefBodyReferent`) closed the closedness-through-indirection leak class BY
+CONSTRUCTION, plus a full cross-surface soundness sweep.
+
+**Audit-the-last-audit.** The previous audit (`e0b47e5`) filed DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ
+Faces A (disj-referent leak) and B (conj-of-struct-referents over-reject). Both LANDED in `8b19318`:
+`testdata/wild/def-closedness-disj-referent` and `def-closedness-conj-referent-overclose` are GREEN
+and gate-enforced (verified). Reconciliation clean.
+
+**VERDICT: MILESTONE NOT substantiated — a 6th residual survives the fold.** The "closed BY
+CONSTRUCTION" claim is FALSIFIED by a concrete adversarial input:
+
+```
+_foo: (*{a:1}|{b:2}) & {c:3}
+#X:   _foo
+y: #X & {a:1, c:3, q:99}
+```
+
+kue emits `{y:{a:1,c:3,q:99}}` (rc 0) — a closed definition ADMITS the genuine extra `q`, a SILENT
+SOUNDNESS over-acceptance. cue v0.16.1 rejects (`y: 2 errors in empty disjunction: y.a / y.q field
+not allowed`). The DIRECT analog `#X: (*{a:1}|{b:2}) & {c:3}` correctly bottoms — only the
+indirection leaks. Over-reject twin: `_foo: ({a:1}|{b:2}) & {c:3}`, `y: #X & {a:1,c:3}` ⇒ kue
+"ambiguous value" where cue resolves `{a:1,c:3}`.
+
+**Root (traced, not narrated).** `resolveDefBodyReferent` (`EvalBase.lean` ~2099) normalizes a
+disjunction ONLY in the `.refId → .disj` arm (line 2111, `normalizeDefinitionValueWithFuel`). When
+the disjunction is a MEMBER of a resolved `.conj` referent, the `.conj cs => .conj (cs.map …)`
+recursion (2112-2113) maps `resolveDefBodyReferent` over the members, and a bare `.disj` member hits
+the top-level `| _ => v` fall-through (2118) — returned UNNORMALIZED, never reaching the distributable
+closed form the gate's `disjArmCrossProduct` expects. The fold unified the struct-referent and
+pure-disjunction-referent paths; a disjunction reached as a conjunction MEMBER through indirection was
+not covered. So the fold's "referent structure can't bypass" is true for a disj at the referent's TOP
+but false one level down (conj-of-disj). This is the class's 6th consecutive residual.
+
+**Referent-structure completeness table (kue vs cue v0.16.1, `-e y` isolated via hidden `_foo`).**
+Constructed and verified: indirect-struct (reject extra / admit own) ✅ · disj-of-conj referent
+`({a}&{b})|{c}` ✅ · disj-arm-is-conj `({a}&{c})|{b}` ✅ · nested-3-deep chain ✅ · chain-through-disj
+`#X:_foo,_foo:_bar,_bar:{a}|{b}` ✅ · comprehension referent ✅ · ref-to-ref-to-disj ✅ ·
+selector-to-struct ✅ · index-to-struct ✅ · open-arm-in-disj (admit via open arm) ✅ · conj-of-struct
+referents `a0 & b0` ✅ · **conj-of-disj referent `(disj) & struct` ✗ (the 6th residual)**. The
+`resolveDefBodyReferent` recursion terminates (fuel + `expanding` path guard; a cyclic referent chain
+returns the bare `.refId`) and is total.
+
+**Seed-isolation (hidden `_foo`) — LEGITIMATE.** The `_foo` vs plain `foo` distinction changes ONLY
+whether the referent is EMITTED as a top-level field; the closedness computation on `#X` (frame
+lookup by index + distribution) is byte-identical. A plain `foo` additionally triggers the ORTHOGONAL
+EXPORT-ERR-BOTTOM-PRECEDENCE masking (an exported ambiguous disjunction's own export error hides the
+sibling bottom). Hidden `_foo` isolates the closedness signal cleanly; it hides nothing about the
+path. Confirmed empirically (direct `foo` vs `_foo` differ only in the referent field's own export
+error).
+
+**FULL CROSS-SURFACE SWEEP — otherwise CLEAN.** Numbers/arithmetic (precision `1.1+2.2`, big-int mul,
+`div`/`mod`/`rem`/`quo` incl. negative signs, decimal div) · lists (slice, concat `+` both reject per
+v0.11 supersession, comprehension, unify) · strings/bytes (interpolation, multiline, escapes) ·
+structs (embed, `let`, comprehension, alias) · unification (order-insensitive, cycle→top) ·
+disjunction defaults / nesting · closedness beyond referents (embedding, pattern-constraint, `close()`,
+optional `a?`, required `a!`, hidden field, def-in-def) — all match cue v0.16.1. The conj-of-disj
+referent is the SOLE surviving divergence.
+
+**EXPORT-ERR-BOTTOM-PRECEDENCE — filing confirmed accurate.** Re-read the seed + backlog entry: it is
+a wrong error MESSAGE, not a wrong value (both kue and cue exit nonzero on the export; only which
+sibling's error surfaces differs). A manifest error-precedence bug, LOW, correctly NOT classified a
+soundness leak. Filed with a red-first `.known-red` seed. No change needed.
+
+**Filed.** DEF-CLOSEDNESS-CONJ-DISJ-REFERENT ranked HEAD (HIGH soundness) in `plan.md`; the LANDED
+DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ entry annotated with the retraction pointer (5th per-slice duty).
+Seed `testdata/wild/def-closedness-conj-disj-referent` (`.known-red`, red-first, whole-file
+exportable — kue leaks `q`, expected `conflicting values (bottom)` matching the direct face). No
+inline fix (a real closedness fix, not a trivial cleanup — owned by the ranked-HEAD fix slice).
+`check.sh` green with the quarantined seed skipped. Alpha HELD.

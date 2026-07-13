@@ -203,8 +203,15 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ ✅ LANDED (2026-07-13) — both faces, one structural fold. The
-closedness-through-indirection class is now closed BY CONSTRUCTION, not per referent shape.**
+**DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ ✅ LANDED (2026-07-13) — both faces, one structural fold.**
+[RETRACTION 2026-07-13, FINAL Phase A milestone-verdict audit: the "closed BY CONSTRUCTION"
+claim is FALSIFIED — a 6th residual (DEF-CLOSEDNESS-CONJ-DISJ-REFERENT, ranked HEAD below)
+survives the fold. `resolveDefBodyReferent` normalizes a disjunction only when a `.refId`
+resolves DIRECTLY to a `.disj`; a disjunction reached as a MEMBER of a resolved `.conj`
+referent bypasses. The fold unified the struct-referent and pure-disjunction-referent
+paths, NOT a conj-of-disj referent. Milestone NOT substantiated.]
+The closedness-through-indirection class is closed for struct and pure-disjunction referents;
+a conj-of-disj referent still leaks.
 `resolveDefBodyReferent` (`EvalBase.lean`) resolves each non-def indirection conjunct of a def body
 to its OWN-content value BEFORE the closedness gate: a struct referent inlines OPEN (unions ONCE via
 the existing own-literal-union — Face B admits `#X: a0 & b0` ⇒ `{a,b}`, no separate closedClauses),
@@ -223,6 +230,31 @@ flips. cue v0.16.1 adjudicates every face identically. **The disj-referent seed 
 to isolate CLOSEDNESS** — a plain exported `foo` is an ambiguous top-level disjunction whose own
 "ambiguous value" export error MASKS `y`'s bottom, an orthogonal export-error-precedence bug filed
 below (EXPORT-ERR-BOTTOM-PRECEDENCE) and captured red-first.
+
+**DEF-CLOSEDNESS-CONJ-DISJ-REFERENT (HIGH soundness — SILENT closedness over-acceptance; 6th
+closedness-through-indirection residual; FINAL Phase A milestone-verdict audit 2026-07-13). RANKED
+HEAD. MILESTONE NOT substantiated.** A definition indirecting to a CONJUNCTION one of whose members
+is a DISJUNCTION (`#X: _foo`, `_foo: (disj) & struct`) does NOT distribute the def's closedness
+across the disjunction arms — the arms inline OPEN and admit a use-site extra. Clean over-accept:
+`_foo: (*{a:1}|{b:2}) & {c:3}` · `#X: _foo` · `y: #X & {a:1,c:3,q:99}` ⇒ kue emits
+`{a:1,c:3,q:99}` (leaks `q`); cue v0.16.1 rejects (empty disjunction, `a`/`q` field not allowed).
+Over-reject face: `_foo: ({a:1}|{b:2}) & {c:3}`, `y: #X & {a:1,c:3}` ⇒ kue "ambiguous value"; cue
+resolves `{a:1,c:3}`. **Root:** `resolveDefBodyReferent` (`EvalBase.lean` ~2099) normalizes a
+disjunction only in the `.refId → .disj` arm (`normalizeDefinitionValueWithFuel`); when the
+disjunction is a MEMBER of a resolved `.conj` referent, the `.conj cs => .conj (cs.map …)` recursion
+maps over members and a bare `.disj` member hits the `| _ => v` fall-through — returned
+UNNORMALIZED, so it never reaches the distributable closed form the gate's `disjArmCrossProduct`
+expects. The DIRECT body `#X: (disj) & struct` splits to top-level conjuncts `[.disj, {c}]` and
+closes correctly; only the indirection buries the disj inside a `.conj` conjunct. **Fix:** route
+disjunction members reached through `resolveDefBodyReferent`'s `.conj` recursion through the SAME
+`normalizeDefinitionValueWithFuel` the direct `.refId → .disj` arm applies (so a nested disj member
+reaches the distributable closed form) — or, equivalently, splice the resolved `.conj`'s members up
+to the top-level conjunct list so the disj lands as its own gate conjunct. Verify the fix preserves
+the struct-referent (Face B) and pure-disj (Face A) fixtures and the def-ref open-extension. Seed
+`testdata/wild/def-closedness-conj-disj-referent` (`.known-red`, red-first, whole-file exportable).
+FULL cross-surface sweep otherwise CLEAN (see log verdict entry): numbers, lists, strings/bytes,
+structs, disjunction defaults, unification, close()/pattern/embedding/optional/required/hidden/
+def-in-def closedness — all match cue v0.16.1; this is the SOLE residual.
 
 **EXPORT-ERR-BOTTOM-PRECEDENCE (LOW — kue bug, cosmetic error selection; surfaced 2026-07-13 folding
 indirection-close).** kue's manifest (`manifestFieldsWithFuel`) walks top-level fields in SOURCE
