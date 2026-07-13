@@ -3,28 +3,52 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ ✅ LANDED (2026-07-13) — indirection-close FOLDED into the
-direct def-body path; the closedness-through-indirection class is closed BY CONSTRUCTION.** Both faces
-of the milestone-verdict audit fixed by ONE structural fold: `resolveDefBodyReferent`
-(`Kue/EvalBase.lean`) resolves each non-def indirection conjunct of a def body to its own-content
-value BEFORE the closedness gate, so an INDIRECT body presents to the SAME
-`ownLiteralUnion`/`disjArmCrossProduct` machinery a DIRECT body uses. A struct referent inlines OPEN
-(unions ONCE — **Face B** `#X: a0 & b0` ⇒ `{a,b}`, no separate closedClauses / over-reject); a
-disjunction referent inlines CLOSED per arm (**Face A** `#X: foo`, `foo: {a}|{b}` distributes → extra
-rejects every arm ⇒ ⊥); a DEFINITION referent (`#Base`) stays a `.refId` (composes its own closedness,
-open-extension unchanged). The two closedness paths are now UNIFIED — no parallel indirection-close to
-diverge (this had spawned FIVE residuals + one regression). The old per-shape `underDef` struct
-pre-close (Face B root) is DELETED, proven dead by full green. Face B was a 68c4879 regression. 13
-`ClosednessTests defflatten_indirect_*` theorems; both seeds RED→GREEN; `check.sh` GREEN, zero
-L-series/Bug2/closedness/cycle flips; 13-case manual kue-vs-cue table matches v0.16.1. Alpha HELD; push
-pending. **Orthogonal find:** `EXPORT-ERR-BOTTOM-PRECEDENCE` (LOW kue bug) — `manifestFieldsWithFuel`
-short-circuits on the source-first field's error, so an exported incomplete (ambiguous disj) MASKS a
-sibling hard bottom (cue reports the bottom regardless of order). Wrong MESSAGE, not wrong value; seed
-`testdata/wild/export-error-bottom-precedence` (`.known-red`), filed in plan backlog. The disj-referent
-seed was isolated to a HIDDEN `_foo` (skipped from output) to test closedness cleanly.
-**MILESTONE re-reachable but NOT claimed** — next: milestone-verdict re-audit (full adversarial sweep).
-Then LOW correctness gaps (PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS graduates its seed,
-LIST-ISSORTED) → PB-EVALBASE-SPLIT → deferred float (chakrit-gated).
+HEAD @ `1bf789b`: **STOP POINT — closedness campaign hit its 6-break reassessment checkpoint;
+autonomous loop halted, escalated to chakrit (2026-07-13).** The final milestone-verdict audit ran the
+FULL cross-surface adversarial sweep vs cue v0.16.1 and found the WHOLE language + stdlib surface CLEAN
+(numbers/arithmetic, lists, strings/bytes, structs, unification/meet, disjunction, closedness beyond
+referents: embedding/pattern-constraint/`close()`/optional/required/hidden/def-in-def — all match) —
+**EXCEPT one exotic closedness-indirection sub-case**, the 6th consecutive residual of that class.
+
+**The one open HIGH soundness item — DEF-CLOSEDNESS-CONJ-DISJ-REFERENT** (`plan.md` ranked HEAD, seed
+`testdata/wild/def-closedness-conj-disj-referent` `.known-red`): a def indirecting to a non-def
+CONJ-OF-DISJ referent leaks an extra. `_foo: (*{a:1}|{b:2}) & {c:3}` · `#X: _foo` · `#X & {a:1,c:3,q:99}`
+⇒ kue admits `q` (cue ⊥). Root traced: `resolveDefBodyReferent` (`EvalBase.lean` ~2099) normalizes a
+disjunction only in the `.refId → .disj` arm; a `.disj` that's a MEMBER of a resolved `.conj` referent
+hits the `.conj cs => .conj (cs.map …)` recursion and bare disj members fall through (2118)
+unnormalized, never reaching `disjArmCrossProduct`. The DIRECT analog closes correctly — only
+conj-of-disj indirection bypasses.
+
+**Why STOPPED (not a 7th fix):** closedness-through-indirection produced SIX milestone-breaking
+residuals this session (nested-conj, bare-disj-body, buried-self-ref, bare-refId, non-def-referent,
+now conj-of-disj) + one regression — each a per-shape recursion-completeness gap. The
+`DEF-BODY-CLOSEDNESS-UNIFY` fold (`8b19318`) unified struct+pure-disj referent paths but the
+normalization recursion is STILL not provably complete over nested referent structures. Per the
+slice-loop circuit-breaker (§ Blind-grind), 6 non-completing fix-slices in one area = mandatory
+reassessment → escalate. **RECOMMENDATION for next session: one DEDICATED pass making
+`resolveDefBodyReferent`'s normalization TOTAL over every nested referent shape by construction (or an
+exhaustiveness proof), NOT another one-off sub-case patch.** Strong Fable-5 candidate.
+
+**Orthogonal LOW find (filed):** `EXPORT-ERR-BOTTOM-PRECEDENCE` — `manifestFieldsWithFuel`
+short-circuits on the source-first field's error, so an exported ambiguous disj MASKS a sibling hard
+bottom (cue reports the bottom regardless of order). Wrong MESSAGE, not wrong value. Seed
+`testdata/wild/export-error-bottom-precedence` (`.known-red`).
+
+**Two chakrit-gated levers, deliberately untouched:**
+- **Datestamped alpha — HELD all session.** Both audits verified release tooling GO. One-command cut:
+  bump the compiled-in version constant (PB-VERSION-CONST, `Runtime.lean:13` — `release.sh` does NOT
+  bump it) then `scripts/release.sh 0.1.0-alpha.<date>` (+ `release-linux.sh`). Held because it's the
+  one outward-facing/irreversible act (public GH release + homebrew-tap patch) and no human was present.
+- **FDLIBM float-transcendental campaign (F1/F3) — deferred for scope call.** `Log1p`/`Expm1`/trig
+  require byte-matching Go's FDLIBM (NOT correctly-rounded); multi-slice, gated on F5. F1 is ⛔ WALLED
+  in plan.md with the finding. F2 kernel + strconv float surface already landed.
+
+**Other queued (autonomously actionable if resumed):** LOW gaps PATTERN-LABEL-ALIAS-SCALAR /
+UNREFERENCED-ALIAS / LIST-ISSORTED; PB-EVALBASE-SPLIT (EvalBase ~2900 lines, nav-debt) + the paired
+PB-FIXTUREPORTS-SPLIT; PB-VERSION-CONST.
+
+**Everything green + pushed** — `main` @ `1bf789b`, `check.sh` GREEN, each core change re-verified
+directly this session. Prior HEAD DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ (`8b19318`) below.
 
 Prior HEAD: **DEF-CLOSEDNESS-NONDEF-REFERENT ✅ LANDED (2026-07-13).** The last known closedness residual is
 closed — a DEFINITION indirecting to a NON-definition struct now closes. `_foo: {a:1}` · `#X: _foo` ·
