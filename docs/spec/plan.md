@@ -203,6 +203,34 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
+**DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ (HIGH — MILESTONE-VERDICT audit 2026-07-13, batch
+`f0382cc..68c4879`, full cross-surface sweep). MILESTONE "all known soundness leaks closed" is
+NOT SUBSTANTIATED.** The 68c4879 `underDef` indirection-close path closes a SINGLE non-def
+struct referent correctly but does not compose over the referent's own disjunction/conjunction
+structure, leaving two residuals (both quarantined `.known-red` seeds, red-first):
+- **Face A — disjunction referent LEAKS (SOUNDNESS over-accept).** A def indirecting to a
+  disjunction of structs (`#X: foo`, `foo: {a:1} | {b:2}`, hidden or plain field) does not
+  distribute the def's closedness across arms — both arms inline OPEN and a use-site extra
+  (`#X & {z:9}`) leaks into every arm. cue v0.16.1 rejects (empty disjunction). Direct
+  `#X: {a:1} | {b:2}` closes correctly — only the indirection leaks. Seed
+  `testdata/wild/def-closedness-disj-referent`. This is exactly the leak class the milestone
+  claimed closed.
+- **Face B — conjunction-of-referents OVER-REJECTS (completeness).** A def whose body is a
+  conjunction reaching non-def struct referents (`#X: a0 & b0`, or mixed `a0 & {b:2}`) closes
+  EACH referent separately → two independent closedClauses; a use-site meet then requires every
+  field in BOTH sets and bottoms a legitimately-declared field (`y: #X & {a:1}` ⇒ `y.b` ⊥;
+  cue ⇒ `{a:1,b:2}`). Likely a 68c4879 regression (previously non-def referents stayed open).
+  Same root shows a `.selector`-to-disjunction referent (`#X: w.inner`) bottoming the WHOLE
+  value. Direct literal conj `#X: {a:1} & {b:2}` closes once over the union (correct). Seed
+  `testdata/wild/def-closedness-conj-referent-overclose`.
+  Fix: route indirection-close through the SAME union-close-once / per-arm-distribute machinery
+  the direct def-body path uses (Bug2-12b union; `.disj` arm distribution) rather than closing
+  each referent independently. FULL SWEEP otherwise CLEAN (see log verdict entry): numbers
+  (precision/big-int/bounds/quo/rem/div/mod), lists (ops/slice/concat/sort/comprehension),
+  strings/bytes (interp/multiline/escapes/cmp), structs (comprehension/let/alias/embed),
+  disjunction defaults (export-resolved identically; eval-display divergence benign),
+  unification (ordering-insensitive, cycle→top) — all match cue v0.16.1.
+
 **Phase B audit reconciliation (2026-07-13, post-`345f08b`; 3rd-cycle INFRA/GATES rotation + module
 graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit outcomes:
 - **Gates/tooling — NO rot.** `check.sh` glob complete, shellcheck reaches all 9 `scripts/*.sh` +

@@ -22960,3 +22960,51 @@ because the enclosing definition drives it.
 - 9 `ClosednessTests` `defflatten_nondef_*` theorems: non-def-referent / selector / index /
   chain / nested reject; admit-own, open-tail admit, non-def-enclosing admit, scalar no-op.
 - Full `check.sh` green; zero L-series / Bug2 / closedness / cycle flips.
+
+---
+
+## Audit: MILESTONE-VERDICT Phase A (2026-07-13, batch `f0382cc..68c4879`, full cross-surface sweep)
+
+**VERDICT: "all known soundness leaks closed" is NOT SUBSTANTIATED.** The full adversarial
+sweep (closedness + every non-closedness surface, vs cue v0.16.1) found two residuals in the
+68c4879 `underDef` indirection-close path — both filed as `.known-red` wild seeds and ranked
+HIGH in the plan (DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ).
+
+### 68c4879 deep audit (core `close` re-key)
+- **`underDef` threading — CORRECT.** Set monotonically at the sole recursive call
+  (`underDef || field.fieldClass.isDefinition`); never spuriously cleared, never set under a
+  non-def. Def-in-non-def-in-def and chain-through-plain-bindings track precisely.
+- **Single non-def referent — SOUND.** `#X: foo` / `foo.bar` / `list[0]` / chain through plain
+  bindings all close; open referent (`foo: {a, ...}`) stays open (respects explicit `...`).
+  Confirmed vs cue: closed referent rejects use-site extra, open referent admits it.
+- **RESIDUAL A (soundness OVER-ACCEPT) — disjunction referent leaks.** `#X: foo`,
+  `foo: {a:1} | {b:2}`: closedness is not distributed across the referent's disjunction arms,
+  both arms inline OPEN, a use-site `& {z:9}` leaks into every arm. cue rejects (empty
+  disjunction). Direct `#X: {a:1} | {b:2}` closes correctly. Seed
+  `def-closedness-disj-referent`.
+- **RESIDUAL B (over-REJECT / completeness) — conjunction-of-referents.** `#X: a0 & b0` (or
+  `a0 & {b:2}`) closes each referent separately → two closedClauses; a use-site meet requires
+  each field in BOTH sets and bottoms a legitimately-declared field. cue admits the union.
+  `.selector`-to-disjunction referent bottoms the whole value. Direct literal conj closes once
+  (correct). Likely a 68c4879 regression. Seed `def-closedness-conj-referent-overclose`.
+
+### Full cross-surface sweep — otherwise CLEAN vs cue v0.16.1
+- **Closedness (other faces):** embed-def-into-non-def, `{#A} & {extra}`, `close(foo)`,
+  optional/required + extra, pattern-constraint referent (`[string]: int` admits), single-ref /
+  selector-to-scalar — all match.
+- **Numbers/arithmetic:** `mod`/`quo`/`rem`/`div` (incl. negative-operand signs), int/float mix,
+  big-int (`1e20 * 2`), decimal precision (`0.1+0.2`, `1/3` to 34 digits, π·2), bounds retention
+  (`5 & >3 & <10`, `int & >5.5`) — all match.
+- **Lists:** slice, comprehension+filter, unification (`[...int] & [1,2]`), len, `list.Repeat`/
+  `Concat`/`Sort` — match; list `+` rejected both sides.
+- **Strings/bytes:** composite interpolation, `\(bool)`, multiline, byte hex escapes, cmp, len
+  (rune-counted `len("héllo")=6`) — match.
+- **Structs:** field/value comprehension, `let`-scoping, self-ref field (`y: x+1`), embed — match.
+- **Disjunction defaults:** export resolves defaults identically to cue (`*1|2|3`⇒1, nested list
+  defaults, `string | *"hi"`, `(*1|2|3) & int`). Eval-mode display divergence (kue prints the
+  full marked disjunction, cue prints the resolved default) is benign — value-level identical.
+- **Unification/meet:** order-insensitive (`{x:int}&{x:5}` = `{x:5}&{x:int}`), `_`-meet, cross-ref
+  (`{x:y, y:2}`), reference cycle → `_` (`a:b, b:a`) — match.
+
+Alpha HELD (milestone not reached). Next: land DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ (both faces via
+the direct-def-body union-close-once / per-arm-distribute machinery), then re-run the verdict.
