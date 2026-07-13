@@ -234,42 +234,41 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   bare-`.disj`/buried-self-ref patches. **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED
   (2026-07-13)** — the orthogonal over-REJECTION is closed too (`mergeCompDefBody` merges a
   comprehension+literal def body into ONE normalized `.structComp` that closes jointly, both-direction
-  guards green).** **MILESTONE VERDICT (2026-07-13 Phase A audit): NOT substantiated — one residual
-  found, `DEF-CLOSEDNESS-NONDEF-REFERENT` (below). The def-body-closedness entry-path leak CLASS is
-  only HALF closed: the DEF-BODY-CLOSEDNESS-UNIFY provenance dispatch routes an indirect body to the
-  sound side, but closedness is only DERIVED when the referent flatten-resolves to a definition. A
-  def body indirecting to a NON-definition struct (`#X: foo`, foo a plain struct) leaves `close`
-  false and leaks a use-site extra. Next-step ranking: DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH
-  soundness) → re-audit milestone → the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR /
+  guards green).** **`DEF-CLOSEDNESS-NONDEF-REFERENT` ✅ LANDED (2026-07-13, below) — the last known
+  closedness residual. The def-body-closedness entry-path leak CLASS is now FULLY closed: closedness
+  keys on the ENCLOSING definition (`underDef`), not the referent, so every referent-kind (def,
+  non-def struct, selector, index, chain) closes uniformly. Next-step ranking: milestone-verdict
+  re-audit (rerun the FULL adversarial sweep — closedness + bounds/arithmetic/list/disjunction
+  surfaces not exhaustively re-swept last pass — to confirm "all soundness leaks closed"; do NOT
+  claim it from this slice) → the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR /
   UNREFERENCED-ALIAS / LIST-ISSORTED) → PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5).** Test health:
   BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
 
-**DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
-2026-07-13 Phase A MILESTONE-VERDICT audit). OPEN — the residual that BREAKS the "all soundness
-leaks closed" milestone.** A definition whose body INDIRECTS (bare `.refId`, `.selector`, `.index`)
-to a NON-definition struct leaks closedness: kue admits a use-site extra field where cue closes.
-`foo: {a:1}` · `#X: foo` · `#X & {z:9}` ⇒ kue `{a,z}` (`kue export` emits `z:9`), cue ⊥ (`y.z:
-field not allowed`). Also `#X: foo.bar`, `#X: list[0]`, and chains through non-def bindings
-(`#X: bar`, `bar: foo`, `foo: {a:1}`). Wild fixture `testdata/wild/def-closedness-nondef-referent/`
-(quarantined `.known-red`). **Root:** DEF-BODY-CLOSEDNESS-UNIFY routes an indirect def body to the
-sound side (`| body => some [body]`), but the downstream `close` predicate
-(`isSelfRef || inCycle || ownLiteralUnion`, `Kue/EvalBase.lean` ~2291) only fires when the referent
-flatten-DERIVES to a closed def. A non-def referent (`.struct`/`.structComp` body → `none` in its
-own flatten → not closed) yields `close` false, so the body inlines OPEN and the definition's own
-closedness is dropped. The DEF-CLOSEDNESS-REREF-DROP fix closed the DEF-referent sub-case (`#X: #Y`,
-#Y a def — referent flatten-closes, `close` fires, kue ⊥ correctly) but left this non-def-referent
-sibling open — the provenance-dispatch comment's "routing it through is inert" assumption is FALSE
-for a non-def referent that ought to carry definition closedness. Internally inconsistent (def-referent
-closes, non-def-referent leaks), so a kue bug regardless of cue — spec basis: the value of a definition
-is closed however reached. **Fix direction:** when a definition body indirects to a resolved non-def
-struct value, close over that value's field set at the flatten (the definition-closedness the
-indirection must carry), NOT only when the referent is itself a flatten-closed def. Likely a `close`
-extension: a definition body that resolves (through ref/selector/index) to a concrete struct closes
-over its fields, whether or not the referent slot is a definition. Verify no over-close of a
-legitimately-open referent (`foo: {a:1, ...}` → `#X: foo` STAYS open — cue admits) and no
-regression to the def-referent path.
+**DEF-CLOSEDNESS-NONDEF-REFERENT (HIGH soundness — SILENT closedness leak / over-acceptance;
+2026-07-13 Phase A MILESTONE-VERDICT audit). ✅ LANDED (2026-07-13).** A definition whose body
+INDIRECTS (bare `.refId`, `.selector`, `.index`) to a NON-definition struct now closes: the value of
+a definition is closed HOWEVER reached, so the referent's def-ness is irrelevant. `_foo: {a:1}` ·
+`#X: _foo` · `#X & {z:9}` ⇒ ⊥; `#X: _foo.bar`, `#X: _l[0]`, and chains through plain bindings
+(`#X: _bar`, `_bar: _foo`, `_foo: {a:1}`) all close; nested closes recursively. Seed
+`testdata/wild/def-closedness-nondef-referent/` graduated (`.known-red` removed). **Fix (two
+coordinated mechanisms, keyed on the ENCLOSING definition, not the referent):** `flattenConjDefRef`
+gained an `underDef` flag (true once expansion passes through a definition field). (1) A `.refId`/
+struct chain: under a def, a non-def `.refId` binding is FOLLOWED and a non-def struct terminal is
+close-and-inlined (`normalizeDefinitionValueWithFuel` — respects an explicit `...`, so an OPEN
+referent stays open) — so the terminal struct enters `expanded` already closed and flows out. (2) A
+`.selector`/`.index` def body (flatten cannot resolve a selection) is returned UNROUTED so the bare
+use-site `.refId` survives to the `.refId` eval arm (`Kue/Eval.lean`), which — when the resolved
+field is a definition with a bare-indirection body — closes the RESOLVED value (`closeResolved`).
+Both-direction guards hold: def-referent regression (`#X: #Y`) unchanged; open-referent
+(`_foo: {a:1,...}`) STAYS open; non-def enclosing (`_x: _foo`) STAYS open (closedness is def-only);
+scalar referent (`#X: 5`) no-op; L-series / composition (`#LS: #Base & {…}`, a `.conj` body, not a
+bare indirection) untouched. cue v0.16.1 adjudicates every face identically (no divergence).
+9 `ClosednessTests defflatten_nondef_*` theorems + graduated seed; full `check.sh` green, zero
+L-series / Bug2 / closedness / cycle flips. This COMPLETES the closedness-through-indirection class:
+`close` no longer keys on the referent — every referent-kind (def, non-def struct, selector, index,
+chain) closes uniformly because the enclosing definition drives it.
 
 **DEF-CLOSEDNESS-NESTED-CONJ-ARM (HIGH soundness — SILENT closedness leak / over-acceptance; NEW,
 2026-07-13 Phase A MILESTONE-RECONFIRMATION audit). ✅ LANDED (2026-07-13, Phase B — normal-form

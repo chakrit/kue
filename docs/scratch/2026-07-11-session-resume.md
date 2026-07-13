@@ -3,7 +3,31 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED (2026-07-13).** The HIGH over-REJECTION is
+HEAD: **DEF-CLOSEDNESS-NONDEF-REFERENT ✅ LANDED (2026-07-13).** The last known closedness residual is
+closed — a DEFINITION indirecting to a NON-definition struct now closes. `_foo: {a:1}` · `#X: _foo` ·
+`#X & {z:9}` ⇒ ⊥ (was leaking `{a,z}`); sibling shapes `#X: _foo.bar` (selector), `#X: _l[0]` (index),
+and chains through plain bindings (`#X: _bar`, `_bar: _foo`, `_foo: {a:1}`) all close; nested closes
+recursively. **Root:** `close` keyed on the REFERENT's def-ness (a non-def struct referent returned
+`none` in its own flatten → not closed → `close` false → OPEN inline), but closedness is a property of
+the ENCLOSING field: `#X` IS a definition, closed however reached. **Fix (`Kue/EvalBase.lean`,
+`Kue/Eval.lean`), keyed on the enclosing def via a new `underDef` flag on `flattenConjDefRef`:** (1) under
+a def, a non-def `.refId` binding is FOLLOWED and a non-def struct terminal is close-and-inlined
+(`normalizeDefinitionValueWithFuel` — respects `...`, so an open referent stays open); (2) a
+`.selector`/`.index` def body (flatten can't resolve a selection) is returned UNROUTED so the bare
+`.refId` survives to the `.refId` eval arm, which closes the RESOLVED value (`closeResolved`) when the
+def's body is a bare indirection. Both-direction guards green: def-referent (`#X: #Y`) unchanged;
+open-referent (`_foo:{a:1,...}`) STAYS open; non-def enclosing (`_x: _foo`) STAYS open (def-only);
+scalar (`#X: 5`) no-op; L-series/composition (`.conj` bodies) untouched. cue v0.16.1 matches every face
+(no divergence). Seed graduated; 9 `ClosednessTests` `defflatten_nondef_*` theorems; `check.sh` GREEN,
+zero L-series/Bug2/closedness/cycle flips. **This COMPLETES the closedness-through-indirection class —
+`close` no longer keys on the referent, every referent-kind closes uniformly.** Alpha HELD. Push pending.
+Next-step ranking: **milestone-verdict re-audit** (rerun the FULL adversarial sweep — closedness +
+bounds/arithmetic/list/disjunction, not exhaustively re-swept last pass — to confirm "all soundness
+leaks closed"; NOT claimed from this slice) → LOW correctness gaps (PATTERN-LABEL-ALIAS-SCALAR,
+UNREFERENCED-ALIAS graduates its seed, LIST-ISSORTED) → PB-EVALBASE-SPLIT nav-debt → deferred float
+FDLIBM (chakrit-gated).
+
+Prior HEAD: **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED (2026-07-13).** The HIGH over-REJECTION is
 closed. A def body conjoining a comprehension embedding with a struct literal
 (`#X: {for k,v in {p:1} {"\(k)":v}} & {b:2}`) bottomed on ANY use-site unify — even `#X & {}` — because
 `flattenConjDefRef` SPLIT the comprehension `.structComp` from its sibling literal, each self-closed, and

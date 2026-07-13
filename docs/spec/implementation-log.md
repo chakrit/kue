@@ -22904,3 +22904,59 @@ exhaustively re-swept — the closedness residual halts the milestone regardless
 verdict is BREAK, and the milestone re-audit reruns after DEF-CLOSEDNESS-NONDEF-REFERENT lands.
 
 Alpha HELD (audit only).
+
+---
+
+## Completed Slice: DEF-CLOSEDNESS-NONDEF-REFERENT
+
+Goal: close the last known closedness-through-indirection residual — a DEFINITION whose
+body indirects (bare `.refId`, `.selector`, `.index`, or a chain of plain bindings) to a
+NON-definition struct must close over that struct, exactly as it closes a def referent.
+
+### Behavior
+
+- `_foo: {a:1}` · `#X: _foo` · `#X & {z:9}` ⇒ ⊥ (`z` not allowed) — was leaking `{a,z}`.
+- Sibling shapes close too: `#X: _foo.bar` (selector), `#X: _l[0]` (index), and chains
+  through plain bindings (`#X: _bar`, `_bar: _foo`, `_foo: {a:1}`). Closedness propagates
+  recursively into nested referent structs.
+- Both-direction guards hold: the def-referent path (`#X: #Y`) is unchanged; an OPEN
+  referent (`_foo: {a:1, ...}`) STAYS open through the definition; a NON-definition
+  enclosing field (`_x: _foo`) STAYS open (closedness is a definition property); a scalar
+  referent (`#X: 5`) is a no-op; L-series / composition bodies (`#LS: #Base & {…}`, a
+  `.conj`, not a bare indirection) are untouched.
+- cue v0.16.1 adjudicates every face identically — no divergence recorded.
+
+### Root and fix
+
+Closedness was keyed on the REFERENT's def-ness: `flattenConjDefRef`'s recursion derived
+closedness only when the referent's own flatten resolved to a definition (a def struct
+self-closes at capture; a def `.conj` closes via the own-literal union). A NON-def struct
+referent returned `none` in its own flatten (not closed), so `close` stayed false at the
+referrer and the body inlined OPEN. The predicate keyed on the wrong thing — closedness is
+a property of the ENCLOSING field: `#X` IS a definition, so its value is closed however
+reached.
+
+Fix — two coordinated mechanisms keyed on the enclosing definition (`Kue/EvalBase.lean`,
+`Kue/Eval.lean`), threaded by a new `underDef` flag on `flattenConjDefRef` (true once
+expansion passes through a definition field):
+
+1. Flatten (ref/struct chain): under a def, a non-def `.refId` binding is FOLLOWED, and a
+   non-def struct terminal is close-and-inlined via `normalizeDefinitionValueWithFuel`
+   (which respects an explicit `...`, so an open referent stays open) — so the terminal
+   struct enters `expanded` already closed and flows out through the existing machinery.
+   Outside a definition a plain struct/ref keeps its standalone (open) path.
+2. Eval `.refId` arm (`closeResolved`): a `.selector`/`.index` def body is one flatten
+   cannot resolve (it needs eval to select from the base), so it is returned UNROUTED and
+   the bare use-site `.refId` survives to the `.refId` eval arm, which — when the resolved
+   field is a definition with a bare-indirection body — closes the RESOLVED value.
+
+This COMPLETES the closedness-through-indirection class: `close` no longer keys on the
+referent, so def, non-def-struct, selector, index, and chain referents all close uniformly
+because the enclosing definition drives it.
+
+### Tests
+
+- Wild seed `testdata/wild/def-closedness-nondef-referent/` graduated (`.known-red` removed).
+- 9 `ClosednessTests` `defflatten_nondef_*` theorems: non-def-referent / selector / index /
+  chain / nested reject; admit-own, open-tail admit, non-def-enclosing admit, scalar no-op.
+- Full `check.sh` green; zero L-series / Bug2 / closedness / cycle flips.

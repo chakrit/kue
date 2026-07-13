@@ -255,6 +255,23 @@ mutual
               match field.fieldClass.optionality with
               | .optional => pure .bottom
               | _ =>
+                -- DEF-CLOSEDNESS-NONDEF-REFERENT: a DEFINITION whose body is a bare INDIRECTION
+                -- (`.refId`/`.selector`/`.index`) is closed HOWEVER it resolves — the value of a
+                -- definition is closed regardless of the def-ness of what it points at. The
+                -- referent's own value may be OPEN (`foo: {a}`, a plain struct), so close the RESOLVED
+                -- value here (`normalizeDefinitionValueWithFuel` respects an explicit `...`, so an open
+                -- referent stays open). Struct/`.conj` def bodies self-close on their own paths (a
+                -- struct at capture, a `.conj` via the flatten own-literal union), so only the
+                -- indirection shapes route through here; a non-def field never closes.
+                let closeResolved : EvalM Value -> EvalM Value := fun resolved =>
+                  if field.fieldClass.isDefinition &&
+                      (match Field.value field with
+                       | .refId _ | .selector _ _ | .index _ _ => true
+                       | _ => false) then do
+                    let v <- resolved
+                    pure (normalizeDefinitionValueWithFuel normalizeFuel v)
+                  else resolved
+                closeResolved <|
                 -- Producer (slice E): a bare ref to a self-ref def the lazy-merge can't handle
                 -- (embed-bearing `.structComp`, or a nested `.struct`/`.structTail`) FORCES the def
                 -- body against its own captured scope — forced HERE with no use-operands (a bare
@@ -320,7 +337,7 @@ mutual
         -- fold, so the def's conjuncts and the use-site narrowing evaluate in ONE pass — identical
         -- to the inlined meet. A constraint that is not a depth-0 ref to a `.conj`-bodied def is
         -- returned unchanged, so non-multi-conjunct-def conjuncts keep their path.
-        let constraints := rawConstraints.flatMap (flattenConjDefRef env evalFuel [])
+        let constraints := rawConstraints.flatMap (flattenConjDefRef env evalFuel [] false)
         -- DISJUNCTION DISTRIBUTION (argocd-secret-data sub-slice 2). A conjunct that is (or refs,
         -- at depth 0) a disjunction with a deferral-needing default arm must DISTRIBUTE the other
         -- conjuncts into each arm at the UNEVALUATED level — `(*_#A|_#B) & {narrow}` becomes

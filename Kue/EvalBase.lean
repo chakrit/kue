@@ -2104,7 +2104,7 @@ def closeDefLiteralUnion (vs : List Value) : Option Value :=
     literal non-ref conjunct) is returned UNCHANGED, so non-multi-conjunct-def conjuncts keep
     their existing path. Recurses so a chain of named multi-conjunct defs (`#C: #B & …`,
     `#B: #A & …`) flattens fully; fuel-bounded against alias cycles (`#A: #A & {…}`). -/
-def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
+def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat) (underDef : Bool)
     (constraint : Value) : List Value :=
   match fuel, constraint with
   | fuel + 1, .refId id =>
@@ -2153,19 +2153,40 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                         | some merged => some [merged]
                         | none => some rawCs
                       else some rawCs
-                  -- A struct-shaped body is ALREADY its own closed form — standalone eval closes a
-                  -- lone struct literal / comprehension def. Routing it through the derived-closedness
-                  -- machinery would re-close it and misfire the buried-self-ref detector on a
-                  -- legitimately-recursive struct (`{kids: [...#T]}`, `{vis: #name}`), so it keeps
-                  -- its standalone-resolution path.
-                  | .struct .. | .structComp .. => none
+                  -- A DEFINITION struct-shaped body is ALREADY its own closed form — standalone eval
+                  -- closes a lone struct literal / comprehension def. Routing it through the
+                  -- derived-closedness machinery would re-close it and misfire the buried-self-ref
+                  -- detector on a legitimately-recursive struct (`{kids: [...#T]}`, `{vis: #name}`),
+                  -- so it keeps its standalone-resolution path. A NON-definition struct reached while
+                  -- deriving an enclosing DEFINITION's closedness (`underDef` — `#X: foo`, `foo: {a}`)
+                  -- carries that definition's closedness: the value of `#X` is closed however reached,
+                  -- so close-and-inline the referent's struct here (`normalizeDefinitionValueWithFuel`
+                  -- respects an explicit `...`, so an OPEN referent `foo: {a, ...}` stays open). Outside
+                  -- a definition (`x: foo`) the plain struct stays OPEN on its standalone path.
+                  | .struct .. | .structComp .. =>
+                      if field.fieldClass.isDefinition then none
+                      else if underDef then
+                        some [normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)]
+                      else none
+                  -- A `.selector`/`.index` def body is an indirection flatten cannot RESOLVE (it needs
+                  -- eval to select from the base). Returned UNROUTED (`none` ⇒ the bare use-site
+                  -- `.refId` survives), so the `.refId` eval arm resolves it and closes the result —
+                  -- the definition's closedness applied at the resolution point.
+                  | .selector .. | .index .. => none
+                  -- A `.refId` def body recurses into the referent's own flatten to carry its derived
+                  -- closedness (a non-def struct terminal of the chain closes via the `underDef` struct
+                  -- arm above). Under a def (`underDef`) a NON-def `.refId` binding is also followed, so
+                  -- a chain through plain bindings (`#X: bar`, `bar: foo`, `foo: {a}`) reaches and
+                  -- closes the terminal struct; outside a def a plain `.refId` field keeps its
+                  -- standalone path (`none`).
+                  | .refId .. =>
+                      if field.fieldClass.isDefinition || underDef then some [Field.value field]
+                      else none
                   -- Every OTHER definition body is an INDIRECT / COMPOSITIONAL shape whose closedness
-                  -- is flatten-DERIVED: `.disj` distributes-and-closes per arm, and `.refId` (and any
-                  -- future indirection — `.selector`, `.builtinCall` to a flatten-closed referent)
-                  -- must recurse into the referent's own flatten to carry its derived closedness.
-                  -- Defaulting to the routed (closedness-preserving) side designs out the entry-path
-                  -- leak class: the `| _ => none` that silently dropped a bare-`.refId` body's derived
-                  -- closedness IS the bug, and a new indirection constructor now cannot bypass it.
+                  -- is flatten-DERIVED: `.disj` distributes-and-closes per arm. Defaulting to the
+                  -- routed (closedness-preserving) side designs out the entry-path leak class: the
+                  -- `| _ => none` that silently dropped a bare body's derived closedness IS the bug,
+                  -- and a new indirection constructor now cannot bypass it.
                   | body => if field.fieldClass.isDefinition then some [body] else none
                 match defBodyConjuncts with
                 | none => [constraint]
@@ -2291,7 +2312,8 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                     let close := field.fieldClass.isDefinition
                       && (isSelfRef || inCycle || ownLiteralUnion)
                     let expanded := cs.flatMap
-                      (flattenConjDefRef env fuel (id.index.val :: expanding))
+                      (flattenConjDefRef env fuel (id.index.val :: expanding)
+                        (underDef || field.fieldClass.isDefinition))
                     if close then
                       let disjEmbeds := expanded.filter (isDistributableDisj normalizeFuel)
                       let literals := expanded.filter isUnionableDefValue

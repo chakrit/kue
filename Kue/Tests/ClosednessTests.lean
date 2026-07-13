@@ -815,6 +815,65 @@ theorem defflatten_reref_regular_field_admits :
       "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4,\n        \"z\": 9\n    }\n}\n" = true := by
   native_decide
 
+-- ### DEF-CLOSEDNESS-NONDEF-REFERENT — a definition indirecting to a NON-definition struct closes.
+-- The value of a definition is closed HOWEVER reached; the referent's def-ness is irrelevant. A
+-- bare-`.refId` chain closes its non-def struct terminal at the flatten (`underDef` struct arm); a
+-- `.selector`/`.index` def body closes on resolution (the `.refId` eval arm). An explicit `...` on the
+-- referent keeps it OPEN through the definition; a non-definition enclosing field stays open (def-only).
+-- cue v0.16.1 adjudicates every face (rejects each extra; admits the open/own/non-def faces).
+
+-- Non-def struct referent (reject): `#X: _foo`, `_foo: {a}` a plain struct — closes over `{a}`.
+theorem defflatten_nondef_referent_rejects :
+    exportJsonBottoms "_foo: {a: 1}\n#X: _foo\nout: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Selector referent (reject): `#X: _foo.bar` selects a non-def struct — resolves-and-closes.
+theorem defflatten_nondef_selector_rejects :
+    exportJsonBottoms "_foo: {bar: {a: 1}}\n#X: _foo.bar\nout: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Index referent (reject): `#X: _l[0]` indexes a non-def struct — resolves-and-closes.
+theorem defflatten_nondef_index_rejects :
+    exportJsonBottoms "_l: [{a: 1}]\n#X: _l[0]\nout: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Chain through non-def bindings (reject): `#X: _bar`, `_bar: _foo`, `_foo: {a}` — the chain reaches
+-- and closes the terminal struct.
+theorem defflatten_nondef_chain_rejects :
+    exportJsonBottoms "_foo: {a: 1}\n_bar: _foo\n#X: _bar\nout: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Nested recursive close (reject): closedness propagates into the referent's nested struct.
+theorem defflatten_nondef_nested_rejects :
+    exportJsonBottoms "_foo: {a: {c: 1}}\n#X: _foo\nout: #X & {a: {d: 2}}\n" = true := by
+  native_decide
+
+-- Admit own field (both-direction): the referent's own declared field is admitted.
+theorem defflatten_nondef_admits_own :
+    exportJsonMatches "_foo: {a: 1}\n#X: _foo\nout: #X & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- OPEN referent (over-close guard, admit): an explicit `...` on the referent keeps the def OPEN, so a
+-- use-site extra `z` is ADMITTED.
+theorem defflatten_nondef_opentail_admits :
+    exportJsonMatches "_foo: {a: 1, ...}\n#X: _foo\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- NON-DEFINITION enclosing (def-only guard, admit): a regular field indirecting to the same struct
+-- carries NO closedness, so a use-site extra is ADMITTED — closedness is a definition property.
+theorem defflatten_nondef_enclosing_admits :
+    exportJsonMatches "_foo: {a: 1}\n_x: _foo\nout: _x & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- Scalar referent (no-op): a definition aliasing a scalar carries no closedness.
+theorem defflatten_nondef_scalar_noop :
+    exportJsonMatches "#X: 5\nout: #X & 5\n"
+      "{\n    \"out\": 5\n}\n" = true := by
+  native_decide
+
 -- ### DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM — comprehension embedding conjoined with a struct
 -- literal in a def body closes JOINTLY, not per-conjunct.
 --
