@@ -3,7 +3,28 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-BODY-CLOSEDNESS-UNIFY ✅ LANDED (2026-07-13).** Def-body closedness is now routed through ONE
+HEAD: **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED (2026-07-13).** The HIGH over-REJECTION is
+closed. A def body conjoining a comprehension embedding with a struct literal
+(`#X: {for k,v in {p:1} {"\(k)":v}} & {b:2}`) bottomed on ANY use-site unify — even `#X & {}` — because
+`flattenConjDefRef` SPLIT the comprehension `.structComp` from its sibling literal, each self-closed, and
+the two disjoint closed structs mutually rejected each other's fields (`close{p} & close{b}` ⊥).
+`ownLiteralUnion` only covers a pure-LITERAL body (a `.structComp` isn't `isUnionableDefValue`). Fix:
+`mergeCompDefBody` (`Kue/EvalBase.lean`) — a def `.conj` body with a real `.comprehension` embedding whose
+conjuncts are all plain struct/structComp (no tail/patterns) is NORMALIZED (each conjunct `closeDefBody`ed)
+and MERGED into ONE `.structComp` (fields union, comprehensions append, openness unions), which closes
+JOINTLY over the field set after the comprehension runs. Both-direction guards green: resolution ADMITS
+(`& {}`, own field, comp output, multi-field, empty-source, order-independent); closedness still REJECTS a
+genuine extra (`& {z}`), a comp-field conflict (`& {p:99}`), and comp/literal overlap; a `...`-tail keeps it
+OPEN. cue v0.16.1 truth table matches every case (no divergence). Bug2-9 narrowing shape EXCLUDED by the
+`.comprehension`-specific predicate (its top-level embedding is a `.disj`). Seed graduated; 14
+`ClosednessTests` `defcomp_*` theorems; `check.sh` GREEN, zero L-series/Bug2/closedness/DEF-FLATTEN/cycle
+flips. **With this AND DEF-BODY-CLOSEDNESS-UNIFY landed, the milestone "all soundness leaks closed" is
+RE-REACHABLE — the NEXT adversarial audit confirms (NOT claimed here).** Alpha HELD (attended). Pushed.
+Next-step ranking: **milestone-reconfirmation audit** → LOW correctness gaps (PATTERN-LABEL-ALIAS-SCALAR,
+UNREFERENCED-ALIAS graduates its seed, LIST-ISSORTED) → PB-EVALBASE-SPLIT nav-debt → deferred float FDLIBM
+(chakrit-gated).
+
+Prior HEAD: **DEF-BODY-CLOSEDNESS-UNIFY ✅ LANDED (2026-07-13).** Def-body closedness is now routed through ONE
 flow point → the entry-path leak CLASS is closed BY CONSTRUCTION. `flattenConjDefRef`'s `defBodyConjuncts`
 (`Kue/EvalBase.lean`) dispatches by closedness PROVENANCE, not per-top-constructor: a struct-shaped body
 (`.struct`/`.structComp`) SELF-CLOSES standalone (kept off the machinery — routing it re-closes /

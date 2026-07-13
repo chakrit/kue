@@ -231,13 +231,13 @@ graph + backlog).** TASK 1 (DEF-CLOSEDNESS-NESTED-CONJ-ARM) landed above. Audit 
   is now closed BY CONSTRUCTION: `defBodyConjuncts` routes every INDIRECT/COMPOSITIONAL def body
   (`.disj`/`.refId`/future indirection) through ONE normalization+flatten point; a new entry path
   cannot bypass. This landed DEF-CLOSEDNESS-REREF-DROP (3rd residual) and subsumes the per-arm
-  bare-`.disj`/buried-self-ref patches. The milestone "all soundness leaks closed" is re-reachable
-  EXCEPT the orthogonal DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM (HIGH over-REJECTION, a comprehension
-  `.conj` body — different mechanism, still OPEN; NOT a closedness leak). Do NOT claim "all leaks
-  closed" while it is open. Next-step ranking: DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM →
-  milestone-reconfirmation audit → the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR /
-  UNREFERENCED-ALIAS / LIST-ISSORTED) → PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5). The NEXT
-  adversarial audit confirms the def-body-closedness milestone (not claimed here).** Test health:
+  bare-`.disj`/buried-self-ref patches. **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM ✅ LANDED
+  (2026-07-13)** — the orthogonal over-REJECTION is closed too (`mergeCompDefBody` merges a
+  comprehension+literal def body into ONE normalized `.structComp` that closes jointly, both-direction
+  guards green). With both landed, the milestone "all soundness leaks closed" is re-reachable — the NEXT
+  adversarial audit confirms (not claimed here). Next-step ranking: milestone-reconfirmation audit →
+  the LOW correctness-gap cluster (PATTERN-LABEL-ALIAS-SCALAR / UNREFERENCED-ALIAS / LIST-ISSORTED) →
+  PB-EVALBASE-SPLIT → chakrit-GATED float (F1→F3→F5).** Test health:
   BuiltinTests (1759) nearest
   the 1800 cap (PB-TESTORG-4); two `.known-red` seeds remain (`unreferenced-value-alias`,
   `byte-literal-interpolation`).
@@ -351,9 +351,10 @@ routed default, the SOUND/closed-preserving side). `ClosednessTests` `defflatten
 open-tail admit / non-def hidden-ref admit) pin per-entry-path completeness + both-direction guards;
 seed `def-closedness-reref-drop` graduated; full `check.sh` green, zero L-series / Bug2 / closedness /
 cycle-value flips (self-conj-cycle, direct/buried/mutual self-ref VALUES unchanged — closedness is
-orthogonal to the cycle→top value rule). NOTE: this does NOT close
+orthogonal to the cycle→top value rule). NOTE: this did NOT close
 DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM below (a comprehension-CONJUNCT `.conj` body — an
-over-REJECTION, a different mechanism, still OPEN). ~~OPEN — MILESTONE NOT substantiated.~~ The THIRD
+over-REJECTION, a different mechanism) — that landed SEPARATELY (✅ 2026-07-13, `mergeCompDefBody`).
+~~OPEN — MILESTONE NOT substantiated.~~ The THIRD
 def-body entry-path residual, same class the batch was closing. When a definition's closedness is
 FLATTEN-DERIVED by `flattenConjDefRef` (nested-conj close, split-literal union close) rather than
 intrinsic to a single struct literal, RE-REFERENCING that def through another def body that is a
@@ -381,27 +382,27 @@ reject guards for both faces + the single-struct-literal-reref and direct-form c
 seed in the fixing slice.
 
 **DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM (HIGH — spurious over-rejection; 2026-07-13 Phase A
-audit). OPEN — LIKELY PRE-EXISTING (orthogonal to the closedness-leak class).** A DEFINITION whose
-body CONJOINS a comprehension embedding with a struct literal bottoms on ANY use-site unification —
-even with an EMPTY struct, so it is NOT a closedness/field-allowed effect:
-- `#X: {for k, v in {p:1} {"\(k)": v}} & {b:2}` · `#X & {}` ⇒ kue ⊥; cue admits `{b:2,p:1}`. Same for
-  `#X & {b:2}` (own field), `#X & {p:1}` (comprehension output), `#X & {c:3}`. Order-independent
-  (`{b:2} & {for…}` too).
-- Controls that WORK (must stay green): comprehension-ALONE def `#X: {for…}` · `#X & {}` ⇒ `{p:1}`
-  (matches cue); the NON-def form `X: {for…} & {b:2}` · `X & {b:2}` ⇒ `{p:1,b:2}` (matches cue). So
-  the failure is SPECIFIC to a DEFINITION mixing a comprehension embedding with a struct conjunct,
-  re-resolved at a use-site.
-**Root (to pin in the fixing slice):** the def-flatten / use-site closedness re-derivation chokes
-when a `.structComp` conjunct sits alongside a struct literal in a definition body — `& {}` bottoming
-rules out a field-allowed cause, pointing at the def re-resolution (double comprehension eval, or a
-closedness clause that rejects the comprehension-produced field on the second unification pass). NOT
-a nested-conj-leak; the comprehension body takes `defBodyConjuncts`'s `| _ => none` path. **Spec
-basis:** unifying a resolved struct value with `{}` is the identity; a comprehension-produced field
-composes like any static field (cue admits). Red seed:
-`testdata/wild/def-comprehension-conjunct-usesite-bottom/` (`.expected` JSON — spec-correct ADMIT);
-add the comp-alone-def and non-def controls. NOTE: the earlier pure-comprehension case
-(`#X: {for…}` · `#X & {b:2}`) MATCHES cue (both ⊥) — the 2026-07-13 RESIDUAL-audit "comprehension …
-corners … CLEAN" sweep holds for that shape; only the comprehension-PLUS-conjunct def diverges.
+audit). ✅ LANDED (2026-07-13).** A DEFINITION whose body CONJOINS a comprehension embedding with a
+struct literal bottomed on ANY use-site unification — even with an EMPTY struct, so it was NOT a
+closedness/field-allowed effect: `#X: {for k, v in {p:1} {"\(k)": v}} & {b:2}` · `#X & {}` ⇒ kue ⊥;
+cue admits `{b:2,p:1}`. **Root:** `flattenConjDefRef` SPLIT the comprehension `.structComp` from its
+sibling struct literal into separate conjuncts; each self-closed via `closeDefBody` (comp → `close{p}`,
+literal → `close{b}`), and the two disjoint closed structs mutually rejected each other's fields
+(`close{p} & close{b}` ⊥). `ownLiteralUnion` unions a pure-LITERAL body before closing, but a
+`.structComp` is not `isUnionableDefValue`, so the comprehension+literal shape had no joint-close path.
+**Fix:** `mergeCompDefBody` (`Kue/EvalBase.lean`) — when a def `.conj` body has ≥1 real `.comprehension`
+embedding AND every conjunct is a plain struct/structComp (no tail value, no pattern constraints),
+NORMALIZE each conjunct (applying `closeDefBody` so `regularOpen`→`defClosed`) then MERGE into ONE
+`.structComp` (fields union via `mergeFieldListWith joinUnevaluated`, comprehensions append, openness
+unions). The single structComp closes over the JOINT field set AFTER the comprehension runs — the
+standalone `.structComp` def-close path. Both-direction guards hold: resolution ADMITS (`& {}`, own
+field, comp output, multi-field, empty-source, order-independent), closedness still REJECTS a genuine
+extra (`& {z}`) and a conflict (`& {p:99}`, comp/literal overlap `b:1`/`b:2`); a `...`-tail keeps it
+OPEN (`& {z}` admits). cue v0.16.1 truth table matches every case (no divergence). Controls stay green:
+comprehension-ALONE def, non-def `X: {for…} & {b:2}`, pure-comprehension use-site field-add (`#X: {for…}`
+· `#X & {b:2}` ⇒ both ⊥). Seed `testdata/wild/def-comprehension-conjunct-usesite-bottom/` graduated;
+`ClosednessTests` `defcomp_conjunct_*`/`defcomp_alone_control_*` (14 theorems). Fell out of the
+`defBodyConjuncts` `.conj` arm, NOT the DEF-BODY-CLOSEDNESS-UNIFY entry-path class.
 
 **DISJ-CLOSEDNESS-EXCLUDED-ARM-LEAK (HIGH soundness — SILENT closedness leak; 2026-07-13 Phase A
 audit `f0ddb19`). ✅ LANDED (2026-07-13).** `isDistributableDisj` (`Kue/EvalBase.lean`) was all-or-nothing

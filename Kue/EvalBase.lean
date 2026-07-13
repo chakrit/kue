@@ -2035,6 +2035,44 @@ def normalizeDefBodyConjunct (fuel : Nat) (v : Value) : List Value :=
       | .disj alts => [.disj (alts.map fun a => (a.fst, mergeDefBodyDisjArm fuel a.snd))]
       | other => [other]
 
+/-- Merge a definition `.conj` body that CONJOINS a comprehension embedding with struct literals
+    (`#X: {for…} & {b:2}`) into ONE `.structComp`, so the comprehension-produced labels and the
+    sibling literals' fields close JOINTLY over a single field set — the standalone `.structComp`
+    def-close derives the allowed set AFTER the comprehension runs. Without this the flatten splits
+    the comprehension `.structComp` from its sibling literal, each self-closes, and the two disjoint
+    closed structs mutually reject each other's fields (`close{p} & close{b}` ⊥) — an over-rejection
+    that bottoms even a `& {}` use-site meet. `ownLiteralUnion` handles a pure-literal body but a
+    `.structComp` is not `isUnionableDefValue`, so this covers the mixed comprehension+literal shape.
+    `none` (keep the existing flatten) UNLESS at least one conjunct is a real comprehension embedding
+    AND every conjunct is a plain struct/structComp (no tail value, no pattern constraints — neither
+    fits a `.structComp` slot). Fields union via `mergeFieldListWith joinUnevaluated` (a shared label
+    still `.conj`-meets, so `{for b:1} & {b:2}` keeps the conflict), comprehensions append, openness
+    unions. -/
+def mergeCompDefBody (fuel : Nat) (cs : List Value) : Option Value :=
+  let members := (cs.flatMap (flattenConjMembers fuel)).map
+    (normalizeDefinitionValueWithFuel normalizeFuel)
+  let asPart : Value -> Option (List Field × List Value × StructOpenness) := fun c =>
+    match c with
+    | .structComp f comps o => some (f, comps, o)
+    | .struct f o none [] _ => some (f, [], o)
+    | _ => none
+  let hasComprehension := members.any fun c =>
+    match c with
+    | .structComp _ comps _ =>
+        comps.any fun e => match e with | .comprehension .. => true | _ => false
+    | _ => false
+  if !hasComprehension then none
+  else match members.mapM asPart with
+    | some (first :: rest) =>
+        let combined := rest.foldl
+          (fun acc part =>
+            ((mergeFieldListWith joinUnevaluated (acc.1 ++ part.1)).getD (acc.1 ++ part.1),
+             acc.2.1 ++ part.2.1,
+             unionDefOpenness acc.2.2 part.2.2))
+          first
+        some (.structComp combined.1 combined.2.1 combined.2.2)
+    | _ => none
+
 /-- Close a set of a definition's own struct-literals into ONE fixed field set: each is
     normalized-to-closed (so a `...`-tail literal stays open, a plain one closes), then merged via
     `mergeDefinitionDecls` (unions fields/patterns/openness — a shared label still `.conj`-meets),
@@ -2104,7 +2142,17 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat)
                 -- keeps its standalone-resolution path).
                 let defBodyConjuncts : Option (List Value) :=
                   match Field.value field with
-                  | .conj rawCs => some rawCs
+                  -- A definition `.conj` body mixing a COMPREHENSION embedding with struct literals
+                  -- (`#X: {for…} & {b:2}`) is merged to ONE `.structComp` so the comprehension-produced
+                  -- labels and the sibling literals close JOINTLY — otherwise flattening splits them and
+                  -- each self-closes, the two disjoint closed structs mutually rejecting each other's
+                  -- fields (`close{p} & close{b}` ⊥), an over-rejection that bottoms even a `& {}` meet.
+                  | .conj rawCs =>
+                      if field.fieldClass.isDefinition then
+                        match mergeCompDefBody normalizeFuel rawCs with
+                        | some merged => some [merged]
+                        | none => some rawCs
+                      else some rawCs
                   -- A struct-shaped body is ALREADY its own closed form — standalone eval closes a
                   -- lone struct literal / comprehension def. Routing it through the derived-closedness
                   -- machinery would re-close it and misfire the buried-self-ref detector on a

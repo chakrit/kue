@@ -815,6 +815,95 @@ theorem defflatten_reref_regular_field_admits :
       "{\n    \"out\": {\n        \"b\": 2,\n        \"d\": 4,\n        \"z\": 9\n    }\n}\n" = true := by
   native_decide
 
+-- ### DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM — comprehension embedding conjoined with a struct
+-- literal in a def body closes JOINTLY, not per-conjunct.
+--
+-- `#X: {for…} & {b:2}` flattened SPLIT the comprehension `.structComp` from its sibling literal, each
+-- self-closed, and the two disjoint closed structs mutually rejected each other's fields
+-- (`close{p} & close{b}` ⊥) — a spurious over-rejection that bottomed even a `& {}` use-site meet.
+-- `ownLiteralUnion` covers a pure-literal body but a `.structComp` is not `isUnionableDefValue`, so
+-- `mergeCompDefBody` merges the comprehension+literal conjuncts into ONE normalized `.structComp` that
+-- closes over the joint field set. Both-direction guards: the resolution ADMITS (comp output + own
+-- field), and closedness still REJECTS a genuine use-site extra. cue v0.16.1 truth table.
+
+-- Core over-rejection (admit): `& {}` is the identity — resolves to `{b,p}`. THE seed graduated here.
+theorem defcomp_conjunct_empty_meet_resolves :
+    exportJsonMatches "#X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\nout: #X & {}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- Admit own field (`& {b:2}`) and comprehension-produced field (`& {p:1}`) — both in the closed set.
+theorem defcomp_conjunct_own_field_admits :
+    exportJsonMatches "#X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\nout: #X & {b: 2}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1\n    }\n}\n" = true := by
+  native_decide
+
+theorem defcomp_conjunct_comp_output_admits :
+    exportJsonMatches "#X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\nout: #X & {p: 1}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- CLOSEDNESS GUARD (reject): a genuine use-site extra `z` is NOT in the joint set `{b,p}` → ⊥.
+theorem defcomp_conjunct_extra_rejects :
+    exportJsonBottoms "#X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Conflict on a comprehension-produced field (`p:1` vs `p:99`) → ⊥.
+theorem defcomp_conjunct_conflict_rejects :
+    exportJsonBottoms "#X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\ny: #X & {p: 99}\n" = true := by
+  native_decide
+
+-- Multi-field comprehension output composes: `{p,q}` from the comprehension ∪ `{b}` literal.
+theorem defcomp_conjunct_multifield_resolves :
+    exportJsonMatches "#X: {for k, v in {p: 1, q: 2} {\"\\(k)\": v}} & {b: 2}\nout: #X & {}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1,\n        \"q\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- Empty-source comprehension yields no field; only the literal `{b}` survives.
+theorem defcomp_conjunct_empty_source_resolves :
+    exportJsonMatches "#X: {for k, v in {} {\"\\(k)\": v}} & {b: 2}\nout: #X & {}\n"
+      "{\n    \"out\": {\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- Empty-source comprehension still CLOSES over `{b}` — a use-site extra `z` rejects.
+theorem defcomp_conjunct_empty_source_extra_rejects :
+    exportJsonBottoms "#X: {for k, v in {} {\"\\(k)\": v}} & {b: 2}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Order-independent: literal FIRST, comprehension second — same joint close.
+theorem defcomp_conjunct_order_independent_resolves :
+    exportJsonMatches "#X: {b: 2} & {for k, v in {p: 1} {\"\\(k)\": v}}\nout: #X & {}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1\n    }\n}\n" = true := by
+  native_decide
+
+-- Comprehension output OVERLAPS the literal on a conflicting value (`b:1` vs `b:2`) → ⊥.
+theorem defcomp_conjunct_overlap_conflict_rejects :
+    exportJsonBottoms "#X: {for k, v in {b: 1} {\"\\(k)\": v}} & {b: 2}\nout: #X & {}\n" = true := by
+  native_decide
+
+-- OPEN-TAIL over-close guard (admit): a `...` in the comprehension struct keeps the def OPEN, so a
+-- use-site extra `z` is ADMITTED. cue v0.16.1 admits.
+theorem defcomp_conjunct_opentail_admits :
+    exportJsonMatches "#X: {for k, v in {p: 1} {\"\\(k)\": v}, ...} & {b: 2}\nout: #X & {z: 9}\n"
+      "{\n    \"out\": {\n        \"b\": 2,\n        \"p\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- CONTROL comprehension-ALONE def (must STAY clean): resolves to `{p}`; use-site field-add rejects.
+theorem defcomp_alone_control_resolves :
+    exportJsonMatches "#X: {for k, v in {p: 1} {\"\\(k)\": v}}\nout: #X & {}\n"
+      "{\n    \"out\": {\n        \"p\": 1\n    }\n}\n" = true := by
+  native_decide
+
+theorem defcomp_alone_control_field_add_rejects :
+    exportJsonBottoms "#X: {for k, v in {p: 1} {\"\\(k)\": v}}\ny: #X & {b: 2}\n" = true := by
+  native_decide
+
+-- CONTROL non-definition (closedness is def-only): `X: {for…} & {b:2}` stays OPEN, use-site add admits.
+theorem defcomp_conjunct_nondef_control_admits :
+    exportJsonMatches "X: {for k, v in {p: 1} {\"\\(k)\": v}} & {b: 2}\nout: X & {c: 3}\n"
+      "{\n    \"X\": {\n        \"p\": 1,\n        \"b\": 2\n    },\n    \"out\": {\n        \"p\": 1,\n        \"b\": 2,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
@@ -824,5 +913,6 @@ theorem defflatten_reref_regular_field_admits :
 #check @defflatten_nestedconj_mixed_ref_stays_open            -- DEF-CLOSEDNESS-NESTED-CONJ-ARM
 #check @defflatten_buried_selfref_deep_rejects                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
 #check @defflatten_reref_regular_field_admits                 -- DEF-BODY-CLOSEDNESS-UNIFY
+#check @defcomp_conjunct_nondef_control_admits                -- DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM
 
 end Kue
