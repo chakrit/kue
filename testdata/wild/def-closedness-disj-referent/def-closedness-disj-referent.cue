@@ -12,12 +12,17 @@ package repro
 //
 // Contrast: a DIRECT disjunction def body (`#X: {a:1} | {b:2}`) DOES close (both
 // arms reject, empty disjunction ⇒ bottom). Only the INDIRECTION-to-disjunction
-// (`#X: foo`, `foo: {a:1} | {b:2}`) leaks. Same leak through a hidden-field
-// referent (`_foo`).
+// (`#X: _foo`, `_foo: {a:1} | {b:2}`) leaks.
+//
+// The referent is HIDDEN (`_foo`) so this fixture isolates the CLOSEDNESS defect: a
+// PLAIN `foo` is an exported top-level ambiguous disjunction whose own "ambiguous
+// value" export error masks `y`'s bottom (kue reports the source-first field's
+// error, cue prioritizes the hard bottom) — an ORTHOGONAL export-error-precedence
+// divergence captured separately in `testdata/wild/export-error-bottom-precedence`.
 //
 // Spec-adjudicated verdict: closed per arm. `y` is an empty disjunction (bottom).
 // Fixed kue emits the closed-disjunction-empty form "conflicting values (bottom)"
 // (matching the direct `#X: {a:1}|{b:2}` face).
-foo: {a: 1} | {b: 2}
-#X: foo
+_foo: {a: 1} | {b: 2}
+#X: _foo
 y: #X & {b: 2, z: 9}

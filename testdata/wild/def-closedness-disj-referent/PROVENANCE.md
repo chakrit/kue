@@ -2,8 +2,13 @@
 
 - **Source:** DEF-CLOSEDNESS-NONDEF-REFERENT MILESTONE-VERDICT audit (2026-07-13),
   full cross-surface sweep of the `f0382cc..68c4879` batch.
+- **Note:** the referent is HIDDEN (`_foo`) to isolate the CLOSEDNESS defect. A plain
+  exported `foo` is an ambiguous top-level disjunction whose OWN "ambiguous value" export
+  error masks `y`'s bottom (kue reports the source-first field's error; cue prioritizes the
+  hard bottom) — an orthogonal export-error-precedence bug captured in
+  `testdata/wild/export-error-bottom-precedence`.
 - **Defect:** A definition whose body indirects to a DISJUNCTION of structs
-  (`#X: foo`, `foo: {a:1} | {b:2}`, hidden or plain field) leaks closedness. The
+  (`#X: _foo`, `_foo: {a:1} | {b:2}`) leaks closedness. The
   68c4879 `underDef` indirection-close path follows the `.refId` referent but does
   not distribute the enclosing definition's closedness across the referent's
   disjunction arms, so each arm inlines OPEN and a use-site extra (`& {z:9}`) is

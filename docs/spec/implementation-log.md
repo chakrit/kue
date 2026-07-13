@@ -23008,3 +23008,52 @@ HIGH in the plan (DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ).
 
 Alpha HELD (milestone not reached). Next: land DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ (both faces via
 the direct-def-body union-close-once / per-arm-distribute machinery), then re-run the verdict.
+
+## Completed Slice: DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ — fold indirection-close into the direct path (2026-07-13)
+
+**The culminating closedness fix. Both faces closed by ONE structural fold; the
+closedness-through-indirection class is now closed BY CONSTRUCTION, not per referent shape.** The
+class had spawned FIVE consecutive milestone-breaking residuals (each a patch to a referent shape on
+the `underDef` indirection-close path) plus one regression — because indirection-close and
+direct-def-body-close were PARALLEL structures over closedness that kept diverging.
+
+**Root fix — `resolveDefBodyReferent` (`Kue/EvalBase.lean`).** A def body's conjuncts are RESOLVED
+before the closedness gate so an INDIRECT body presents to the SAME machinery a DIRECT body flows
+through (`ownLiteralUnion` / `disjArmCrossProduct` in `flattenConjDefRef`):
+- A non-def `.refId` to a STRUCT inlines it OPEN → it unions ONCE with sibling conjuncts via the
+  existing own-literal-union. **Face B** (`#X: a0 & b0`) now closes over the UNION `{a,b}` (admits
+  both, rejects a genuine extra), not each referent separately into two mutually-rejecting
+  closedClauses. Mixed ref+literal (`#X: a0 & {b:2}`) is the same union.
+- A non-def `.refId` to a DISJUNCTION inlines it CLOSED per arm (`normalizeDefinitionValueWithFuel`,
+  the same close a direct `.disj` body gets at capture). **Face A** (`#X: foo`, `foo: {a}|{b}`)
+  distributes closedness across arms → a use-site extra rejects every arm (empty disjunction ⇒ ⊥).
+- A non-def `.conj`/`.refId`-chain referent resolves its members / follows the chain (fuel- and
+  path-bounded).
+- A DEFINITION referent (`#Base`) is LEFT as the `.refId` — it governs its own closedness, so the
+  meet composes it (the open-extension pattern, and `#X: #Base` def→def, both unchanged).
+
+**Paths UNIFIED.** There is no longer a separate indirection-close to diverge from the direct path:
+per-arm distribution (disjunction referents) and union-close-once (conjunction referents) come by
+CONSTRUCTION. The old per-shape `underDef` struct pre-close in `defBodyConjuncts` — the Face B
+over-reject root — is DELETED, proven dead by full `check.sh` green after removal. Face B was
+confirmed a 68c4879 regression (non-def referents were being closed separately).
+
+**Tests.** 13 `ClosednessTests defflatten_indirect_*` `native_decide` theorems: Face A reject /
+select-arm / open-tail-admit; Face B admit-union / reject-extra; mixed conj admit/reject; struct
+distributed-over-disj admit/reject; both-direction regression guards (def-ref extend rejects
+foreign, def-ref-to-nondef chain closes, direct-disj control, non-def enclosing stays open). Both
+seeds RED→GREEN (`def-closedness-disj-referent`, `def-closedness-conj-referent-overclose`). Full
+`check.sh` green; zero L-series / Bug2 / closedness / cycle flips; a 13-case manual kue-vs-cue table
+across the referent-structure surface matches cue v0.16.1 identically.
+
+**Orthogonal finding — export-error precedence (`EXPORT-ERR-BOTTOM-PRECEDENCE`).** The disj-referent
+seed with a PLAIN exported `foo` exposed a SEPARATE kue bug: `manifestFieldsWithFuel` walks top-level
+fields in source order and short-circuits on the first error, so an exported incomplete field
+(ambiguous disjunction) declared before a hard contradiction MASKS the bottom ("ambiguous value"
+where cue reports the contradiction regardless of order). Both exit nonzero — a wrong error MESSAGE,
+not a wrong value; separate blast radius. The seed was isolated to a HIDDEN `_foo` (skipped from
+output, so `y`'s bottom surfaces) to test CLOSEDNESS cleanly; the precedence bug is captured red-first
+in `testdata/wild/export-error-bottom-precedence` (`.known-red`) and filed in the plan backlog.
+
+Alpha HELD (attended slice; milestone re-reachable but NOT claimed here — a fresh full verdict sweep
+owns that).

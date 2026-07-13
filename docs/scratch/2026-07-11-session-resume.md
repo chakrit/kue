@@ -3,7 +3,30 @@
 # Session resume — 2026-07-11
 
 `check.sh` GREEN. Standing keep-going loop governs.
-HEAD: **DEF-CLOSEDNESS-NONDEF-REFERENT ✅ LANDED (2026-07-13).** The last known closedness residual is
+HEAD: **DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ ✅ LANDED (2026-07-13) — indirection-close FOLDED into the
+direct def-body path; the closedness-through-indirection class is closed BY CONSTRUCTION.** Both faces
+of the milestone-verdict audit fixed by ONE structural fold: `resolveDefBodyReferent`
+(`Kue/EvalBase.lean`) resolves each non-def indirection conjunct of a def body to its own-content
+value BEFORE the closedness gate, so an INDIRECT body presents to the SAME
+`ownLiteralUnion`/`disjArmCrossProduct` machinery a DIRECT body uses. A struct referent inlines OPEN
+(unions ONCE — **Face B** `#X: a0 & b0` ⇒ `{a,b}`, no separate closedClauses / over-reject); a
+disjunction referent inlines CLOSED per arm (**Face A** `#X: foo`, `foo: {a}|{b}` distributes → extra
+rejects every arm ⇒ ⊥); a DEFINITION referent (`#Base`) stays a `.refId` (composes its own closedness,
+open-extension unchanged). The two closedness paths are now UNIFIED — no parallel indirection-close to
+diverge (this had spawned FIVE residuals + one regression). The old per-shape `underDef` struct
+pre-close (Face B root) is DELETED, proven dead by full green. Face B was a 68c4879 regression. 13
+`ClosednessTests defflatten_indirect_*` theorems; both seeds RED→GREEN; `check.sh` GREEN, zero
+L-series/Bug2/closedness/cycle flips; 13-case manual kue-vs-cue table matches v0.16.1. Alpha HELD; push
+pending. **Orthogonal find:** `EXPORT-ERR-BOTTOM-PRECEDENCE` (LOW kue bug) — `manifestFieldsWithFuel`
+short-circuits on the source-first field's error, so an exported incomplete (ambiguous disj) MASKS a
+sibling hard bottom (cue reports the bottom regardless of order). Wrong MESSAGE, not wrong value; seed
+`testdata/wild/export-error-bottom-precedence` (`.known-red`), filed in plan backlog. The disj-referent
+seed was isolated to a HIDDEN `_foo` (skipped from output) to test closedness cleanly.
+**MILESTONE re-reachable but NOT claimed** — next: milestone-verdict re-audit (full adversarial sweep).
+Then LOW correctness gaps (PATTERN-LABEL-ALIAS-SCALAR, UNREFERENCED-ALIAS graduates its seed,
+LIST-ISSORTED) → PB-EVALBASE-SPLIT → deferred float (chakrit-gated).
+
+Prior HEAD: **DEF-CLOSEDNESS-NONDEF-REFERENT ✅ LANDED (2026-07-13).** The last known closedness residual is
 closed — a DEFINITION indirecting to a NON-definition struct now closes. `_foo: {a:1}` · `#X: _foo` ·
 `#X & {z:9}` ⇒ ⊥ (was leaking `{a,z}`); sibling shapes `#X: _foo.bar` (selector), `#X: _l[0]` (index),
 and chains through plain bindings (`#X: _bar`, `_bar: _foo`, `_foo: {a:1}`) all close; nested closes

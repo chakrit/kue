@@ -963,6 +963,89 @@ theorem defcomp_conjunct_nondef_control_admits :
       "{\n    \"X\": {\n        \"p\": 1,\n        \"b\": 2\n    },\n    \"out\": {\n        \"p\": 1,\n        \"b\": 2,\n        \"c\": 3\n    }\n}\n" = true := by
   native_decide
 
+-- ### DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ — indirection-close FOLDED into the direct-def-body path.
+--
+-- A definition whose body INDIRECTS to a disjunction/conjunction of non-def referents closes with
+-- the SAME machinery a direct body uses: `resolveDefBodyReferent` inlines a struct referent OPEN (it
+-- unions ONCE with siblings, not each separately) and a disjunction referent CLOSED per arm (like a
+-- direct `.disj` body), so both the per-arm distribute (Face A) and the union-close-once (Face B)
+-- come by construction. A DEFINITION referent (`#Base`) still governs its own closedness (composes).
+-- cue v0.16.1 adjudicates every face identically.
+
+-- Face A (disjunction referent). Reject a use-site extra in every arm → empty disjunction (⊥).
+theorem defflatten_indirect_disj_referent_rejects :
+    exportJsonBottoms "_foo: {a: 1} | {b: 2}\n#X: _foo\nout: #X & {b: 2, z: 9}\n" = true := by
+  native_decide
+
+-- Face A select: a use-site meet matching ONE arm resolves to that arm (the `b`-arm survives).
+theorem defflatten_indirect_disj_referent_selects_arm :
+    exportJsonMatches "_foo: {a: 1} | {b: 2}\n#X: _foo\nout: #X & {b: 2}\n"
+      "{\n    \"out\": {\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- Face A open-arm over-close guard: a `...` arm stays OPEN, so a use-site extra is ADMITTED there.
+theorem defflatten_indirect_disj_referent_opentail_admits :
+    exportJsonMatches "_foo: {a: 1, ...} | {b: 2}\n#X: _foo\nout: #X & {a: 1, z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
+-- Face B (conjunction of struct referents). Close ONCE over the UNION — both fields admitted.
+theorem defflatten_indirect_conj_referent_admits_union :
+    exportJsonMatches "_a0: {a: 1}\n_b0: {b: 2}\n#X: _a0 & _b0\nout: #X & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+-- Face B closedness guard: a genuine use-site extra `z` is NOT in the union `{a,b}` → ⊥ (no leak).
+theorem defflatten_indirect_conj_referent_rejects_extra :
+    exportJsonBottoms "_a0: {a: 1}\n_b0: {b: 2}\n#X: _a0 & _b0\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Face B mixed ref + literal conjunct: same union-close-once — `{a}` referent ∪ `{b}` literal admit.
+theorem defflatten_indirect_mixed_conj_admits_union :
+    exportJsonMatches "_a0: {a: 1}\n#X: _a0 & {b: 2}\nout: #X & {a: 1}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2\n    }\n}\n" = true := by
+  native_decide
+
+theorem defflatten_indirect_mixed_conj_rejects_extra :
+    exportJsonBottoms "_a0: {a: 1}\n#X: _a0 & {b: 2}\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- Struct referent DISTRIBUTED across a disjunction referent: `{a} & ({b}|{c})` → `{a,c}` arm selected.
+theorem defflatten_indirect_struct_distributes_over_disj :
+    exportJsonMatches "_a0: {a: 1}\n_foo: {b: 2} | {c: 3}\n#X: _a0 & _foo\nout: #X & {c: 3}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"c\": 3\n    }\n}\n" = true := by
+  native_decide
+
+-- Same, closedness guard: an extra outside every distributed combination bottoms all arms → ⊥.
+theorem defflatten_indirect_struct_disj_rejects_extra :
+    exportJsonBottoms "_a0: {a: 1}\n_foo: {b: 2} | {c: 3}\n#X: _a0 & _foo\ny: #X & {a: 1, b: 2, z: 9}\n"
+      = true := by
+  native_decide
+
+-- REGRESSION guard (def-ref composition unchanged): a def EXTENDING a def-ref (`#LS: #Base & {…}`)
+-- still composes the ref's OWN closedness at the meet — a FOREIGN field rejects (not union-inlined).
+theorem defflatten_indirect_defref_extend_rejects_foreign :
+    exportJsonBottoms "#Base: {b: 1}\n#LS: #Base & {b: 1}\ny: #LS & {q: 9}\n" = true := by
+  native_decide
+
+-- REGRESSION guard (def-ref reaching a non-def referent): `#X: #Base`, `#Base: _foo`, `_foo: {a}`
+-- closes through the def-ref chain — the resolution recurses at each def level.
+theorem defflatten_indirect_defref_to_nondef_rejects :
+    exportJsonBottoms "_foo: {a: 1}\n#Base: _foo\n#X: #Base\ny: #X & {z: 9}\n" = true := by
+  native_decide
+
+-- CONTROL (direct disj def body stays green): the DIRECT face already closed — must not regress.
+theorem defflatten_indirect_direct_disj_control_rejects :
+    exportJsonBottoms "#X: {a: 1} | {b: 2}\ny: #X & {b: 2, z: 9}\n" = true := by
+  native_decide
+
+-- CONTROL (non-def enclosing stays OPEN): closedness is a def property — a regular field indirecting
+-- to a conjunction of structs admits a use-site extra.
+theorem defflatten_indirect_nondef_enclosing_admits :
+    exportJsonMatches "_a0: {a: 1}\n_b0: {b: 2}\n_x: _a0 & _b0\nout: _x & {z: 9}\n"
+      "{\n    \"out\": {\n        \"a\": 1,\n        \"b\": 2,\n        \"z\": 9\n    }\n}\n" = true := by
+  native_decide
+
 -- COVERAGE TRIPWIRE (test-health). Anchors the LAST theorem of every section.
 #check @eval_sc4_hidden_scalar_unaffected                     -- SC-4 hidden non-struct unaffected
 #check @eval_sc4_hidden_list_elem_closes                      -- SC-4 closing recurses list elements
@@ -973,5 +1056,6 @@ theorem defcomp_conjunct_nondef_control_admits :
 #check @defflatten_buried_selfref_deep_rejects                -- DEF-CLOSEDNESS-NESTED-CONJ-RESIDUAL
 #check @defflatten_reref_regular_field_admits                 -- DEF-BODY-CLOSEDNESS-UNIFY
 #check @defcomp_conjunct_nondef_control_admits                -- DEF-COMPREHENSION-CONJUNCT-USESITE-BOTTOM
+#check @defflatten_indirect_nondef_enclosing_admits           -- DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ
 
 end Kue

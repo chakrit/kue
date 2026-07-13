@@ -203,9 +203,39 @@ rejection argument: `kue-performance.md` + implementation-log.
 
 ### Ranked OPEN backlog
 
-**DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ (HIGH — MILESTONE-VERDICT audit 2026-07-13, batch
-`f0382cc..68c4879`, full cross-surface sweep). MILESTONE "all known soundness leaks closed" is
-NOT SUBSTANTIATED.** The 68c4879 `underDef` indirection-close path closes a SINGLE non-def
+**DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ ✅ LANDED (2026-07-13) — both faces, one structural fold. The
+closedness-through-indirection class is now closed BY CONSTRUCTION, not per referent shape.**
+`resolveDefBodyReferent` (`EvalBase.lean`) resolves each non-def indirection conjunct of a def body
+to its OWN-content value BEFORE the closedness gate: a struct referent inlines OPEN (unions ONCE via
+the existing own-literal-union — Face B admits `#X: a0 & b0` ⇒ `{a,b}`, no separate closedClauses),
+a disjunction referent inlines CLOSED per arm (self-contained, as a direct `.disj` body — Face A
+`#X: foo`, `foo: {a}|{b}` distributes closedness, the extra rejects every arm). A DEFINITION referent
+(`#Base`) is LEFT as the `.refId` so the meet composes its own closedness (open-extension unchanged).
+The two closedness paths are UNIFIED: indirect bodies flow through the SAME
+`ownLiteralUnion`/`disjArmCrossProduct` machinery a direct body does — no parallel indirection-close
+to diverge. This UNIFIES what had spawned five consecutive residuals + one regression; the old
+per-shape `underDef` struct pre-close (the Face B over-reject root) is DELETED, proven dead by full
+`check.sh` green. Face B was indeed a 68c4879 regression (non-def referents were closed separately),
+now fixed. 13 `ClosednessTests defflatten_indirect_*` theorems (both faces + siblings +
+struct-over-disj distribute + def-ref-compose / def-ref-to-nondef-chain / direct-disj / non-def
+enclosing guards); both seeds RED→GREEN; full `check.sh` green, zero L-series/Bug2/closedness/cycle
+flips. cue v0.16.1 adjudicates every face identically. **The disj-referent seed uses a HIDDEN `_foo`
+to isolate CLOSEDNESS** — a plain exported `foo` is an ambiguous top-level disjunction whose own
+"ambiguous value" export error MASKS `y`'s bottom, an orthogonal export-error-precedence bug filed
+below (EXPORT-ERR-BOTTOM-PRECEDENCE) and captured red-first.
+
+**EXPORT-ERR-BOTTOM-PRECEDENCE (LOW — kue bug, cosmetic error selection; surfaced 2026-07-13 folding
+indirection-close).** kue's manifest (`manifestFieldsWithFuel`) walks top-level fields in SOURCE
+order and short-circuits on the FIRST field that errors, so an EXPORTED incomplete field (unresolved
+disjunction) declared before a hard CONTRADICTION field MASKS the bottom: kue reports "ambiguous
+value", cue reports the contradiction regardless of order (a hard bottom is the dominant export
+error). Both exit nonzero — a WRONG error MESSAGE, not a wrong value. Fix: export error selection
+should prefer a `.contradiction` over an `.incomplete`/`.ambiguous` sibling rather than
+short-circuit. Separate blast radius across error-message fixtures — not a closedness concern. Seed
+`testdata/wild/export-error-bottom-precedence` (`.known-red`, red-first).
+
+**~~DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ~~ (superseded by the LANDED entry above — original diagnosis
+retained for provenance).** The 68c4879 `underDef` indirection-close path closes a SINGLE non-def
 struct referent correctly but does not compose over the referent's own disjunction/conjunction
 structure, leaving two residuals (both quarantined `.known-red` seeds, red-first):
 - **Face A — disjunction referent LEAKS (SOUNDNESS over-accept).** A def indirecting to a

@@ -129,6 +129,18 @@ construction. Three successive audits found one leaking entry path each (bare-`.
 buried-self-ref, bare-`.refId`) under the old per-arm dispatch; the single flow point
 closes the class.
 
+**Indirect referents fold into the direct path (invariant).** A definition body that
+INDIRECTS to a non-def referent (`#X: foo`, `#X: a & b`) presents to that single flow
+point exactly like a DIRECT body: `resolveDefBodyReferent` (`EvalBase.lean`) resolves each
+non-def indirection conjunct to its own-content value BEFORE the closedness gate — a struct
+referent inlines OPEN (it unions ONCE with sibling conjuncts, so `#X: a & b` closes over
+the UNION, never each referent separately) and a disjunction referent inlines CLOSED per
+arm (self-contained, as a direct `.disj` body is closed at capture). A DEFINITION referent
+(`#Base`) is left as the `.refId` so the meet composes its own closedness (the
+open-extension pattern). So per-arm distribution (disjunction referents) and
+union-close-once (conjunction referents) come by CONSTRUCTION — there is no separate
+indirection-close machinery to diverge from the direct path.
+
 `Eval.lean` resolves references, applies constraints, distributes meets, evaluates
 expressions, and handles reference cycles explicitly with a visited-binding path and
 bounded fuel (host-language recursion failure is not acceptable cycle semantics),

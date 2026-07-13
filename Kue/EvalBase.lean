@@ -2084,6 +2084,39 @@ def closeDefLiteralUnion (vs : List Value) : Option Value :=
   | first :: more => some (normalizeDefinitionValueWithFuel normalizeFuel
       (more.foldl mergeDefinitionDecls first))
 
+/-- Under a definition, resolve a body conjunct that INDIRECTS to the definition's OWN content, so
+    an INDIRECT def body presents to the closedness machinery exactly like a DIRECT one — the fold
+    that unifies the two closedness paths. A non-def `.refId` to a struct inlines it OPEN (it unions
+    ONCE with sibling conjuncts via the own-literal-union gate, exactly as a direct struct literal
+    does — so `#X: a & b` closes over the UNION, not each referent separately); to a disjunction
+    inlines it CLOSED per arm (self-contained, as a direct `.disj` body is closed at capture — so
+    `#X: foo`, `foo: {a}|{b}` distributes closedness across the arms); a `.conj` referent resolves
+    each member (a conj of struct referents unions). A DEFINITION referent (`#Base`) GOVERNS its own
+    closedness, so it is left as the `.refId` for the meet to compose (the open-extension pattern).
+    A `.selector`/`.index` (unresolvable without eval), a non-zero-depth ref, an on-path (cyclic)
+    ref, and a scalar are left unchanged (the bare `.refId` survives to the eval arm's
+    `closeResolved`). Fuel- and path-bounded against reference cycles. -/
+def resolveDefBodyReferent (frame : List Field) (expanding : List Nat) : Nat -> Value -> Value
+  | 0, v => v
+  | fuel + 1, v =>
+      match v with
+      | .refId id =>
+          if id.depth.val != 0 || expanding.contains id.index.val then v
+          else match nthField id.index.val frame with
+            | none => v
+            | some field =>
+                if field.fieldClass.isDefinition then v
+                else match Field.value field with
+                  | .struct .. | .structComp .. => Field.value field
+                  | .disj .. => normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)
+                  | .conj cs =>
+                      .conj (cs.map (resolveDefBodyReferent frame (id.index.val :: expanding) fuel))
+                  | .refId .. | .selector .. | .index .. =>
+                      resolveDefBodyReferent frame (id.index.val :: expanding) fuel (Field.value field)
+                  | _ => v
+      | .conj cs => .conj (cs.map (resolveDefBodyReferent frame expanding fuel))
+      | _ => v
+
 /-- Bug2-9: flatten a referenced multi-conjunct NAMED def into its constituent conjuncts at the
     UNEVALUATED constraint level, so `#LS & {narrow}` (where `#LS: #A & #B & {…}`) becomes
     `#A & #B & {…} & {narrow}` operand-wise — byte-identical to the INLINED meet, which the
@@ -2157,28 +2190,23 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat) (underDef 
                   -- closes a lone struct literal / comprehension def. Routing it through the
                   -- derived-closedness machinery would re-close it and misfire the buried-self-ref
                   -- detector on a legitimately-recursive struct (`{kids: [...#T]}`, `{vis: #name}`),
-                  -- so it keeps its standalone-resolution path. A NON-definition struct reached while
-                  -- deriving an enclosing DEFINITION's closedness (`underDef` — `#X: foo`, `foo: {a}`)
-                  -- carries that definition's closedness: the value of `#X` is closed however reached,
-                  -- so close-and-inline the referent's struct here (`normalizeDefinitionValueWithFuel`
-                  -- respects an explicit `...`, so an OPEN referent `foo: {a, ...}` stays open). Outside
-                  -- a definition (`x: foo`) the plain struct stays OPEN on its standalone path.
-                  | .struct .. | .structComp .. =>
-                      if field.fieldClass.isDefinition then none
-                      else if underDef then
-                        some [normalizeDefinitionValueWithFuel normalizeFuel (Field.value field)]
-                      else none
+                  -- so it keeps its standalone-resolution path. A NON-definition struct body keeps its
+                  -- standalone OPEN path here: a struct REFERENT under a def is close-folded into the
+                  -- enclosing def's own-literal union by `resolveDefBodyReferent` (which inlines the
+                  -- referent's value into the conjunct list BEFORE the closedness gate), never reaching
+                  -- flatten as a bare struct-bodied ref.
+                  | .struct .. | .structComp .. => none
                   -- A `.selector`/`.index` def body is an indirection flatten cannot RESOLVE (it needs
                   -- eval to select from the base). Returned UNROUTED (`none` ⇒ the bare use-site
                   -- `.refId` survives), so the `.refId` eval arm resolves it and closes the result —
                   -- the definition's closedness applied at the resolution point.
                   | .selector .. | .index .. => none
                   -- A `.refId` def body recurses into the referent's own flatten to carry its derived
-                  -- closedness (a non-def struct terminal of the chain closes via the `underDef` struct
-                  -- arm above). Under a def (`underDef`) a NON-def `.refId` binding is also followed, so
-                  -- a chain through plain bindings (`#X: bar`, `bar: foo`, `foo: {a}`) reaches and
-                  -- closes the terminal struct; outside a def a plain `.refId` field keeps its
-                  -- standalone path (`none`).
+                  -- closedness (a def-ref referent composes its own closedness at the meet). Under a def
+                  -- (`underDef`) a NON-def `.refId` binding is followed; `resolveDefBodyReferent`
+                  -- resolves a non-def struct/disjunction referent to own-content before the gate, and
+                  -- a def-ref stays a `.refId` the recursion expands. Outside a def a plain `.refId`
+                  -- field keeps its standalone path (`none`).
                   | .refId .. =>
                       if field.fieldClass.isDefinition || underDef then some [Field.value field]
                       else none
@@ -2199,9 +2227,19 @@ def flattenConjDefRef (env : Env) (fuel : Nat) (expanding : List Nat) (underDef 
                     -- Conjunction associativity keeps this semantics-preserving; it fires only for a
                     -- DEFINITION body (closedness is a def property), leaving every non-def conjunct,
                     -- ref, scalar, self-ref, and mixed `.conj` on its existing path.
-                    let cs := if field.fieldClass.isDefinition
-                      then rawCs.flatMap (normalizeDefBodyConjunct normalizeFuel)
+                    -- DEF-CLOSEDNESS-INDIRECT-DISJ-CONJ: RESOLVE each non-def indirection conjunct
+                    -- to its own-content value FIRST, so an indirect def body's referent structure
+                    -- (a struct → unioned once; a disjunction → closed per arm) reaches the SAME
+                    -- own-literal-union / disj-distribute machinery a DIRECT body flows through —
+                    -- the fold that unifies the two closedness paths. A def-ref is left untouched
+                    -- (it governs its own closedness / composes at the meet).
+                    let resolvedCs := if field.fieldClass.isDefinition || underDef
+                      then rawCs.map
+                        (resolveDefBodyReferent frame.snd (id.index.val :: expanding) normalizeFuel)
                       else rawCs
+                    let cs := if field.fieldClass.isDefinition
+                      then resolvedCs.flatMap (normalizeDefBodyConjunct normalizeFuel)
+                      else resolvedCs
                     -- SELF-CONJ-CYCLE: a self-reference BURIED below the body's top-level conjuncts
                     -- (`x: (x & int) & 1`, whose body is `.conj [(x & int), 1]` — the self-ref sits
                     -- inside the nested `(x & int)` conjunct) must NOT be inlined. Inlining replaces
